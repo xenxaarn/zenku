@@ -782,7 +782,8 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
   idle path.
 * [x] Eager-copy `fork`, `execve` with argv, blocking `wait4`, orphan
   reparenting, per-process fd tables.
-* [ ] COW `fork` with page refcounts, `kill` basics, sleep queues.
+* [x] COW `fork` with page refcounts; `kill` basics and sleep queues remain
+  open.
 * [ ] `brk`, anonymous `mmap`, `munmap`, guard-page stack growth.
 * [x] Shared `crt0`, user ABI header; `init`, `echo`.
 * [ ] Tiny libc + `sh`, `ls`, `cat`, `pwd`, `ps`, `kill`, `sleep`, `uname`,
@@ -796,6 +797,8 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
 * [x] `make test-sh`: shell builtins, external commands, and clean exit.
 * [ ] Stress tests: 100 sequential forks, COW write separation, fork bomb
   capped by a process limit, exec failure rollback.
+  **Partial:** a 20-fork COW write-separation loop runs in `/init`; the larger
+  stress cases are still open.
 
 **Accept:** interactive shell runs `ls /`, `cat /etc/motd`, `echo hi | wc`,
 `ps` shows init/sh/ps, Ctrl-D exits, and the system remains responsive after

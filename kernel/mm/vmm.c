@@ -14,6 +14,43 @@
 
 static uint64_t *g_pml4;
 
+/* One reference count per physical frame, used only for user pages that can
+ * be shared by fork. Kernel frames and page tables are not tracked here. */
+static uint8_t g_page_refs[PMM_MAX_FRAMES];
+
+static void page_ref_set(uint64_t phys, uint8_t value)
+{
+    uint64_t frame = phys / PAGE_SIZE;
+
+    if (frame < PMM_MAX_FRAMES) {
+        g_page_refs[frame] = value;
+    }
+}
+
+static void page_ref_get(uint64_t phys)
+{
+    uint64_t frame = phys / PAGE_SIZE;
+
+    if (frame < PMM_MAX_FRAMES && g_page_refs[frame] != UINT8_MAX) {
+        g_page_refs[frame]++;
+    }
+}
+
+static void page_ref_put(uint64_t phys)
+{
+    uint64_t frame = phys / PAGE_SIZE;
+
+    if (frame >= PMM_MAX_FRAMES) {
+        return;
+    }
+    if (g_page_refs[frame] > 1) {
+        g_page_refs[frame]--;
+        return;
+    }
+    g_page_refs[frame] = 0;
+    pmm_free_frame(phys);
+}
+
 static inline uint64_t *phys_to_ptr(uint64_t phys)
 {
     return (uint64_t *)(uintptr_t)(PHYS_MAP_BASE + phys);
@@ -93,12 +130,13 @@ static int clone_level(uint64_t src_phys, uint64_t dst_phys, unsigned level)
         }
 
         if (level == 1) {
-            frame = pmm_alloc_frame();
-            if (frame == 0) {
-                return -1;
-            }
-            memcpy(phys_to_ptr(frame), phys_to_ptr(entry_addr(se)), PAGE_SIZE);
-            dst[i] = frame | (se & ~PTE_ADDR_MASK);
+            /* Share the leaf page. Both parent and child lose write access;
+             * the first write allocates a private copy. */
+            uint64_t page = entry_addr(se);
+
+            page_ref_get(page);
+            src[i] = (se & ~PTE_WRITE) | PTE_COW;
+            dst[i] = (se & ~PTE_WRITE) | PTE_COW;
             continue;
         }
 
@@ -126,7 +164,7 @@ static void free_level(uint64_t table_phys, unsigned level)
             continue;
         }
         if (level == 1) {
-            pmm_free_frame(entry_addr(entry));
+            page_ref_put(entry_addr(entry));
             continue;
         }
         if (entry & PTE_HUGE) {
@@ -185,6 +223,11 @@ uint64_t vmm_space_clone(uint64_t src_phys)
             return 0;
         }
     }
+
+    /* The parent's writable mappings were downgraded to COW above. Flush the
+     * stale writable TLB entries before it resumes. */
+    __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3"
+                     : : : "rax", "memory");
     return dst_phys;
 }
 
@@ -222,13 +265,57 @@ uint64_t vmm_kernel_space(void)
     return VMM_PML4_PHYS;
 }
 
+bool vmm_cow_fault(uint64_t virt, uint64_t error)
+{
+    uint64_t *pte;
+    uint64_t old;
+    uint64_t frame;
+    uint64_t flags;
+
+    /* A COW fault is a write fault. It may come from user mode or from a
+     * kernel syscall writing into a user buffer; kernel addresses are never
+     * resolved here. */
+    if (!(error & 0x2) || (virt >= 0x0000800000000000ull && !(error & 0x4))) {
+        return false;
+    }
+
+    pte = vmm_walk(virt, false, 0);
+    if (!pte || !(*pte & PTE_PRESENT) || !(*pte & PTE_COW)) {
+        return false;
+    }
+
+    old = entry_addr(*pte);
+    frame = pmm_alloc_frame();
+    if (frame == 0) {
+        return false;
+    }
+
+    memcpy(phys_to_ptr(frame), phys_to_ptr(old), PAGE_SIZE);
+    flags = (*pte & ~PTE_ADDR_MASK) & ~PTE_COW;
+    flags |= PTE_PRESENT | PTE_WRITE | PTE_USER;
+    *pte = (frame & PTE_ADDR_MASK) | flags;
+    page_ref_set(frame, 1);
+    page_ref_put(old);
+    vmm_flush_tlb(virt & ~(PAGE_SIZE - 1));
+    return true;
+}
+
 int vmm_init(void)
 {
+    uint64_t cr0;
+
     g_pml4 = phys_to_ptr(VMM_PML4_PHYS);
     if (!(g_pml4[PML4_INDEX(0xFFFFFFFF80000000ull)] & PTE_PRESENT)) {
         kprintf("vmm: kernel PML4 entry is missing\n");
         return -1;
     }
+
+    /* Supervisor writes must honor read-only PTEs, otherwise a syscall
+     * writing into a COW user page would modify the shared frame instead of
+     * taking a private copy. */
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+    cr0 |= (1ull << 16);
+    __asm__ volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
 
     /* Drop the bootloader's low identity map; the kernel only needs the
      * higher-half window and the direct map from here on. */
@@ -256,6 +343,9 @@ int vmm_map(uint64_t virt, uint64_t phys, uint64_t flags)
         return -1;
     }
     *pte = (phys & PTE_ADDR_MASK) | (flags & ~PTE_ADDR_MASK);
+    if (flags & PTE_USER) {
+        page_ref_set(phys, 1);
+    }
     vmm_flush_tlb(virt);
     return 0;
 }
@@ -287,6 +377,9 @@ int vmm_unmap(uint64_t virt)
 
     if (!pte || !(*pte & PTE_PRESENT)) {
         return -1;
+    }
+    if (*pte & PTE_USER) {
+        page_ref_put(entry_addr(*pte));
     }
     *pte = 0;
     vmm_flush_tlb(virt);

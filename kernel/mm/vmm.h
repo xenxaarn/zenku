@@ -12,6 +12,7 @@
 #define PTE_DIRTY    (1ull << 6)
 #define PTE_HUGE     (1ull << 7)
 #define PTE_GLOBAL   (1ull << 8)
+#define PTE_COW      (1ull << 9) /* software: page is shared after fork */
 #define PTE_NX       (1ull << 63)
 
 #define PTE_ADDR_MASK 0x000FFFFFFFFFF000ull
@@ -40,6 +41,10 @@ uint64_t vmm_space_clone(uint64_t src_phys);
 void vmm_space_destroy(uint64_t pml4_phys);
 void vmm_space_switch(uint64_t pml4_phys);
 uint64_t vmm_kernel_space(void);
+
+/* Resolve a user copy-on-write page fault. Returns true when it was handled
+ * and the faulting instruction may be retried. */
+bool vmm_cow_fault(uint64_t virt, uint64_t error);
 
 void vmm_selftest(void);
 

@@ -15,8 +15,10 @@ Phase 5 has the process core and an interactive userland shell working:
   entries are private, and each process has its own 16 KiB kernel stack
 - a 16-slot process table with pid/ppid, states, zombies, and orphan
   reparenting to pid 1 (or the kernel)
-- eager-copy `fork` (COW comes later), `execve` with argv copied through the
-  syscall boundary, and blocking `wait4` with exit status delivery
+- copy-on-write `fork` with per-frame reference counts: both address spaces
+  write-protect shared pages and the page-fault path makes a private copy;
+  `execve` copies argv through the syscall boundary, and `wait4` blocks with
+  exit status delivery
 - cooperative `yield` plus timer-driven round-robin preemption at 100 Hz;
   IRQs taken in the kernel never reschedule
 - per-process file descriptor tables with pipe endpoints inherited on fork
@@ -24,7 +26,8 @@ Phase 5 has the process core and an interactive userland shell working:
 - user-space ABI in `libc/include/zenku.h`, a shared `user/crt0.asm`, and
   `/bin/echo` loaded from the ext2 rootfs
 - `/init` demonstrates fork + exec + wait, pipe inheritance across fork, exit
-  statuses, and timer preemption
+  statuses, copy-on-write separation, a 20-fork stress loop, and timer
+  preemption
 - `/bin/sh`: prompt, line input, `exit`/`help` builtins, and external commands
   launched from `/bin` with fork/exec/wait
 - `/bin/cat` and `/bin/uname` coreutils; kernel command `sh` starts the shell
@@ -33,8 +36,8 @@ Phase 5 has the process core and an interactive userland shell working:
   flowing whenever every process is waiting
 - `make test-proc` and `make test-sh` cover processes and the interactive path
 
-Still on the Phase 5 list: COW page refcounts, `brk`/`mmap`, a richer libc,
-more coreutils, shell pipelines and redirection, and the fork-bomb/stress
+Still on the Phase 5 list: `brk`/`mmap`, a richer libc, more coreutils, shell
+pipelines and redirection, `kill`/sleep queues, and the fork-bomb/stress
 tests.
 
 ## Phase 4: filesystem and user mode

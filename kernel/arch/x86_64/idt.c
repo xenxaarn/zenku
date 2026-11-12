@@ -4,6 +4,7 @@
 #include <compiler.h>
 #include <kpanic.h>
 #include <kio.h>
+#include <mm/vmm.h>
 #include <string.h>
 #include <syscall.h>
 #include <types.h>
@@ -150,6 +151,14 @@ void isr_dispatch(struct regs *r)
         return;
     }
     if (r->vector < IDT_EXCEPTIONS) {
+        if (r->vector == 14) {
+            uint64_t cr2;
+
+            __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
+            if (vmm_cow_fault(cr2, r->error)) {
+                return;
+            }
+        }
         exception_panic(r);
         return;
     }

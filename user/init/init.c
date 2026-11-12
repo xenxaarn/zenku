@@ -1,5 +1,8 @@
 #include <zenku.h>
 
+static volatile unsigned long cow_value = 0x1234;
+static int cow_pipe[2];
+
 static size_t text_len(const char *s)
 {
     size_t n = 0;
@@ -205,6 +208,97 @@ int main(long argc, char **argv)
     }
 
     {
+        long child;
+        int status = -1;
+
+        cow_value = 0x1234;
+        child = sys_fork();
+        if (child == 0) {
+            if (cow_value == 0x1234) {
+                print("cow: child inherited value\n");
+            } else {
+                print("cow: child inherit FAILED\n");
+            }
+            cow_value = 0x5678;
+            if (cow_value == 0x5678) {
+                print("cow: child private write ok\n");
+            } else {
+                print("cow: child private write FAILED\n");
+            }
+            sys_exit(0);
+        } else if (child > 0) {
+            sys_wait4(child, &status, 0);
+            if (cow_value == 0x1234) {
+                print("cow: parent value preserved\n");
+            } else {
+                print("cow: parent value FAILED\n");
+            }
+        } else {
+            print("cow: fork FAILED\n");
+        }
+    }
+
+    {
+        long child;
+        int status = -1;
+
+        cow_pipe[0] = -1;
+        cow_pipe[1] = -1;
+        child = sys_fork();
+        if (child == 0) {
+            if (sys_pipe(cow_pipe) == 0) {
+                print("cow: child pipe fds ok\n");
+                sys_close(cow_pipe[0]);
+                sys_close(cow_pipe[1]);
+            } else {
+                print("cow: child pipe fds FAILED\n");
+            }
+            sys_exit(0);
+        } else if (child > 0) {
+            sys_wait4(child, &status, 0);
+            if (cow_pipe[0] == -1 && cow_pipe[1] == -1) {
+                print("cow: parent fd array preserved\n");
+            } else {
+                print("cow: parent fd array FAILED ");
+                print_uint((unsigned long)(unsigned int)cow_pipe[0]);
+                print(" ");
+                print_uint((unsigned long)(unsigned int)cow_pipe[1]);
+                print("\n");
+            }
+        } else {
+            print("cow: pipe fork FAILED\n");
+        }
+    }
+
+    {
+        int ok = 1;
+
+        for (int i = 0; i < 20; i++) {
+            long child;
+            int status = -1;
+
+            cow_value = 0x1234;
+            child = sys_fork();
+            if (child == 0) {
+                cow_value = 0x5000 + (unsigned long)i;
+                sys_exit(cow_value == 0x5000 + (unsigned long)i ? 0 : 1);
+            } else if (child > 0) {
+                if (sys_wait4(child, &status, 0) != child || status != 0 ||
+                    cow_value != 0x1234) {
+                    ok = 0;
+                }
+            } else {
+                ok = 0;
+            }
+        }
+        if (ok) {
+            print("cow: 20 fork stress ok\n");
+        } else {
+            print("cow: fork stress FAILED\n");
+        }
+    }
+
+    {
         long a;
         long b;
         int s1 = -1;
@@ -214,7 +308,7 @@ int main(long argc, char **argv)
         if (a == 0) {
             volatile unsigned long x = 0;
 
-            for (unsigned long i = 0; i < 3000000UL; i++) {
+            for (unsigned long i = 0; i < 50000000UL; i++) {
                 x += i;
             }
             print("preempt: child A finished\n");
