@@ -1,0 +1,18 @@
+# Build outputs
+build/
+*.iso
+*.img
+*.ext2
+
+# Objects and dependency files
+*.o
+*.d
+*.a
+*.elf
+*.bin
+
+# Editor and OS noise
+*~
+.DS_Store
+compile_commands.json
+.cache/

@@ -1,0 +1,11 @@
+# Zenku GDB bootstrap for Phase 0.
+# QEMU must be started with `make debug` (-s -S).
+set pagination off
+set confirm off
+set architecture i8086
+
+target remote :1234
+
+# stage1 entry at 0x7C00 + 0x40 (El Torito Boot Info Table occupies 8..63)
+break *0x7c40
+continue
