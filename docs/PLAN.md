@@ -400,8 +400,7 @@ zenku/
 │       └── usercopy.h
 ├── boot/
 │   ├── stage1/
-│   │   ├── stage1.asm
-│   │   └── stage1.ld
+│   │   └── stage1.asm
 │   ├── stage2/
 │   │   ├── entry.asm
 │   │   ├── main.asm

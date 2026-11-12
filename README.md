@@ -21,7 +21,22 @@ Stage1 currently prints `ZENKU STAGE1 OK` and halts. Phase 1 adds stage2
 (E820, VBE, ISO9660, ext2), the 32-bit loader, long mode, and the higher-half
 kernel.
 
-The full 9-phase plan is in [`docs/PLAN.md`](docs/PLAN.md).
+The full 9-phase plan is in [`docs/PLAN.md`](docs/PLAN.md). The current boot
+media contract is documented in [`docs/boot-protocol.md`](docs/boot-protocol.md).
+
+## Progress
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Build system, stage1, ISO, serial test harness | **Complete** |
+| 1 | Stage1→stage2→stage3, E820/VBE/ISO9660, ext2+ELF64, long mode, higher-half kernel | Next |
+| 2 | GDT/TSS/IDT, exceptions, PIC/PIT, PMM/VMM/heap | Pending |
+| 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | Pending |
+| 4 | VFS, ext2 mount, ring 3, core syscalls | Pending |
+| 5 | Scheduler, COW fork, exec/wait, libc, shell, coreutils | Pending |
+| 6 | Graphical desktop, terminal window, mouse UI | Pending |
+| 7 | UEFI loader and dual-boot ISO | Pending |
+| 8 | SYSCALL fast path, SMEP/SMAP/NX, hardening, release | Pending |
 
 ## Requirements
 
