@@ -66,6 +66,10 @@ void process_wake_io(void);
 /* Sleep for `ms` milliseconds; the syscall frame resumes after the call. */
 void process_sleep(struct regs *frame, uint64_t ms);
 
+/* Send SIGKILL (9) or SIGTERM (15). Returns 0, a negative errno, or 1 when
+ * the current process terminated itself and switched away. */
+int process_kill(struct regs *frame, int pid, int sig);
+
 int process_getpid(void);
 int process_getppid(void);
 void process_print(void);

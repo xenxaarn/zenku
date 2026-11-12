@@ -39,8 +39,8 @@ repository. The result boots from a single `build/os.iso` image.
 - **Processes** — per-process page tables and 16 KiB kernel stacks, copy-on-write
   `fork`, `execve`, blocking `wait4`, and 100 Hz round-robin preemption.
 - **Userland** — a freestanding ABI header, shared `crt0`, `/init`, `/bin/sh`
-  with multi-stage pipelines, and `ls`, `cat`, `wc`, `ps`, `sleep`, `uname`,
-  and `echo`.
+  with multi-stage pipelines, and `ls`, `cat`, `wc`, `ps`, `sleep`, `kill`,
+  `uname`, and `echo`.
 - **Automated verification** — serial/PS2/QEMU integration tests for the boot
   chain, memory, filesystem, syscalls, scheduler, shell, and fault paths.
 

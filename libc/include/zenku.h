@@ -33,6 +33,7 @@ typedef long off_t;
 #define SYS_execve  59
 #define SYS_exit    60
 #define SYS_wait4   61
+#define SYS_kill    62
 #define SYS_readdir 78
 #define SYS_getprocs 79
 #define SYS_sleep  80
@@ -175,6 +176,11 @@ static inline long sys_execve(const char *path, char *const argv[],
 static inline long sys_wait4(long pid, int *status, int options)
 {
     return syscall3(SYS_wait4, pid, (long)status, options);
+}
+
+static inline long sys_kill(long pid, int sig)
+{
+    return syscall3(SYS_kill, pid, sig, 0);
 }
 
 static inline long sys_getpid(void)

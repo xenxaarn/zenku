@@ -268,6 +268,14 @@ void syscall_dispatch(struct regs *r)
     case SYS_sleep:
         process_sleep(r, r->rdi);
         return;
+    case SYS_kill:
+        ret = process_kill(r, (int)r->rdi, (int)r->rsi);
+        if (ret == 0) {
+            r->rax = 0;
+        } else if (ret < 0) {
+            r->rax = (uint64_t)ret;
+        }
+        return;
     case SYS_getticks:
         ret = (int64_t)pit_ticks();
         break;

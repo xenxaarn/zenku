@@ -781,15 +781,15 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
   idle path.
 * [x] Eager-copy `fork`, `execve` with argv, blocking `wait4`, orphan
   reparenting, per-process fd tables.
-* [x] COW `fork` with page refcounts; timer-based sleep queues (`sleep`).
-  `kill` basics remain open.
+* [x] COW `fork` with page refcounts; timer-based sleep queues and `kill`
+  (SIGKILL/SIGTERM) with wait-status delivery.
 * [ ] `brk`, anonymous `mmap`, `munmap`, guard-page stack growth.
 * [x] Shared `crt0`, user ABI header; `init`, `echo`.
 * [ ] Tiny libc + `sh`, `ls`, `cat`, `pwd`, `ps`, `kill`, `sleep`, `uname`,
   `clear`, `wc`, `head`.
-  **Partial:** `sh`, `ls`, `cat`, `wc`, `ps`, `sleep`, and `uname` exist; the
-  shell has `exit`/`help`/`pwd` builtins. `kill`, `clear`, `head`, and a shared
-  libc are still open.
+  **Partial:** `sh`, `ls`, `cat`, `wc`, `ps`, `sleep`, `kill`, and `uname`
+  exist; the shell has `exit`/`help`/`pwd` builtins. `clear`, `head`, and a
+  shared libc are still open.
 * [ ] Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
   **Partial:** external exec through `/bin`, line editing, blocking console
   reads, and up to four-stage pipelines (`pipe` + `dup2`) work; redirection is

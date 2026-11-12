@@ -552,16 +552,10 @@ void process_wait(struct regs *frame, int pid, uint64_t status_ptr)
     process_schedule(frame);
 }
 
-void process_exit(struct regs *frame, int status)
+static void terminate_process(struct process *p, int status)
 {
-    struct process *p = g_current;
     int new_ppid = 0;
 
-    if (!p) {
-        sched_return_to_kernel();
-    }
-
-    kprintf("user: exit status %d\n", status);
     p->exit_status = status;
     p->state = PROC_ZOMBIE;
 
@@ -588,8 +582,44 @@ void process_exit(struct regs *frame, int status)
             parent->state = PROC_READY;
         }
     }
+}
 
+void process_exit(struct regs *frame, int status)
+{
+    struct process *p = g_current;
+
+    if (!p) {
+        sched_return_to_kernel();
+    }
+
+    kprintf("user: exit status %d\n", status);
+    terminate_process(p, status);
     process_schedule(frame);
+}
+
+int process_kill(struct regs *frame, int pid, int sig)
+{
+    struct process *target;
+
+    if (sig != 9 && sig != 15) {
+        return -EINVAL;
+    }
+    target = find_pid(pid);
+    if (!target) {
+        return -ESRCH;
+    }
+    if (target->state == PROC_ZOMBIE) {
+        return 0;
+    }
+    if (target == g_current) {
+        kprintf("user: killed by signal %d\n", sig);
+        process_exit(frame, 128 + sig);
+        return 1;
+    }
+
+    terminate_process(target, 128 + sig);
+    graveyard_process(target);
+    return 0;
 }
 
 void process_yield(struct regs *frame)

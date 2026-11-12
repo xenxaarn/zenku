@@ -342,6 +342,26 @@ int main(long argc, char **argv)
         }
     }
 
+    {
+        long child = sys_fork();
+
+        if (child == 0) {
+            sys_sleep_ms(100000);
+            sys_exit(0);
+        } else if (child > 0) {
+            int status = -1;
+
+            if (sys_kill(child, 15) == 0 &&
+                sys_wait4(child, &status, 0) == child && status == 143) {
+                print("kill: child terminated ok\n");
+            } else {
+                print("kill: child FAILED\n");
+            }
+        } else {
+            print("kill: fork FAILED\n");
+        }
+    }
+
     print("init: exiting with status 0\n");
     return 0;
 }
