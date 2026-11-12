@@ -83,6 +83,7 @@ A Linux host with a C compiler and binutils, plus:
 | `xorriso` | ISO image creation |
 | `mke2fs` / `e2fsprogs` | Root filesystem image |
 | `qemu-system-x86_64` | Emulation and integration tests |
+| `python3` | QEMU probe and image inspection scripts |
 | `make`, `bash`, coreutils | Build and test scripts |
 
 A real `x86_64-elf` cross toolchain is optional. The build falls back to the
