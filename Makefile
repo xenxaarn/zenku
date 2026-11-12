@@ -4,12 +4,17 @@ SHELL := /bin/bash
 include config.mk
 
 STAGE1_SRC  := boot/stage1/stage1.asm
-STAGE1_BIN  := $(BUILD)/boot/stage1.bin
-TEST_STAGE1 := $(BUILD)/test/stage1.bin
+STAGE2_SRC  := boot/stage2/entry.asm
+STAGE2_BIN  := $(BUILD)/boot/stage2.bin
+STAGE2_TEST := $(BUILD)/test/stage2.bin
+BOOT_IMAGE  := $(BUILD)/boot/boot.img
+TEST_IMAGE  := $(BUILD)/test/boot.img
 ISO         := $(BUILD)/os.iso
 TEST_ISO    := $(BUILD)/test/os.iso
 
-.PHONY: all iso run debug test clean distclean doctor size layout help boot toolchain
+STAGE2_DEPS := $(STAGE2_SRC) boot/stage2/console.asm
+
+.PHONY: all iso run debug test clean distclean doctor size layout layout-test help boot toolchain
 
 all: iso
 
@@ -21,28 +26,34 @@ $(BUILD)/dirs:
 	@touch $@
 
 # ---------------------------------------------------------------------------
-# Bootloader (Phase 0: 2 KiB stage1 only)
+# Bootloader: 2 KiB stage1 + stage2 payload
 # ---------------------------------------------------------------------------
-boot: $(STAGE1_BIN)
+boot: $(BOOT_IMAGE)
 
-$(STAGE1_BIN): $(STAGE1_SRC) | $(BUILD)/dirs
+$(STAGE2_BIN): $(STAGE2_DEPS) | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
-	$(NASM) -f bin -o $@ $<
+	$(NASM) -f bin -I. -o $@ $(STAGE2_SRC)
 
-$(TEST_STAGE1): $(STAGE1_SRC) | $(BUILD)/dirs
+$(STAGE2_TEST): $(STAGE2_DEPS) | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
-	$(NASM) -f bin -dTEST_EXIT -o $@ $<
+	$(NASM) -f bin -I. -dTEST_EXIT -o $@ $(STAGE2_SRC)
+
+$(BOOT_IMAGE): $(STAGE1_SRC) $(STAGE2_BIN) scripts/build-boot.sh | $(BUILD)/dirs
+	scripts/build-boot.sh $(STAGE1_SRC) $(STAGE2_BIN) $@
+
+$(TEST_IMAGE): $(STAGE1_SRC) $(STAGE2_TEST) scripts/build-boot.sh | $(BUILD)/dirs
+	scripts/build-boot.sh $(STAGE1_SRC) $(STAGE2_TEST) $@ -dTEST_EXIT
 
 # ---------------------------------------------------------------------------
 # ISO images
 # ---------------------------------------------------------------------------
 iso: $(ISO)
 
-$(ISO): $(STAGE1_BIN) scripts/mkiso.sh
-	scripts/mkiso.sh $(STAGE1_BIN) $(ISO)
+$(ISO): $(BOOT_IMAGE) scripts/mkiso.sh
+	scripts/mkiso.sh $(BOOT_IMAGE) $(ISO)
 
-$(TEST_ISO): $(TEST_STAGE1) scripts/mkiso.sh
-	scripts/mkiso.sh $(TEST_STAGE1) $(TEST_ISO)
+$(TEST_ISO): $(TEST_IMAGE) scripts/mkiso.sh
+	scripts/mkiso.sh $(TEST_IMAGE) $(TEST_ISO)
 
 # ---------------------------------------------------------------------------
 # Run / debug / test
@@ -81,11 +92,14 @@ doctor:
 		fi; \
 	done
 
-size: $(STAGE1_BIN)
-	@stat -c '%n: %s bytes' $(STAGE1_BIN)
+size: $(BOOT_IMAGE)
+	@stat -c '%n: %s bytes' $(BOOT_IMAGE) $(STAGE2_BIN)
 
-layout: $(STAGE1_BIN)
-	scripts/check-layout.sh $(STAGE1_BIN)
+layout: $(BOOT_IMAGE)
+	scripts/check-layout.sh $(BOOT_IMAGE)
+
+layout-test: $(TEST_IMAGE)
+	DEBUG_EXIT=1 scripts/check-layout.sh $(TEST_IMAGE)
 
 clean:
 	rm -rf $(BUILD)

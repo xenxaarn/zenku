@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Headless Phase 0 integration test.
+# Headless integration test for the boot chain.
 #
-# The test ISO is built with -dTEST_EXIT, so stage1 writes 0x10 to the
-# isa-debug-exit port. QEMU then exits with status (0x10 << 1) | 1 == 33.
+# The test ISO is built with -dTEST_EXIT. QEMU is started with isa-debug-exit,
+# so the last stage that reaches the test hook writes 0x10 and QEMU exits with
+# status (0x10 << 1) | 1 == 33.
 set -uo pipefail
 
 ISO=${1:-build/test/os.iso}
@@ -13,14 +14,14 @@ TEST_DIR=$(dirname "$ISO")
 SERIAL_LOG="$TEST_DIR/serial.log"
 QEMU_LOG="$TEST_DIR/qemu.log"
 EXPECTED_EXIT=33
-TIMEOUT=${TEST_TIMEOUT:-20}
+TIMEOUT=${TEST_TIMEOUT:-30}
 
 : > "$SERIAL_LOG"
 
 set +e
 timeout "$TIMEOUT" "$QEMU" \
     -cdrom "$ISO" \
-    -m 512M \
+    -m 2G \
     -machine pc \
     -display none \
     -serial "file:$SERIAL_LOG" \
@@ -42,14 +43,15 @@ if [ "$STATUS" -ne "$EXPECTED_EXIT" ]; then
     exit 1
 fi
 
-if ! grep -q "ZENKU STAGE1 OK" "$SERIAL_LOG"; then
-    echo "FAIL: stage1 banner missing from serial output"
-    exit 1
-fi
+require() {
+    if ! grep -q "$1" "$SERIAL_LOG"; then
+        echo "FAIL: missing serial line: $1"
+        exit 1
+    fi
+}
 
-if ! grep -q "boot drive: 0x" "$SERIAL_LOG"; then
-    echo "FAIL: boot drive line missing from serial output"
-    exit 1
-fi
+require "ZENKU STAGE1 OK"
+require "boot drive: 0x"
+require "ZENKU STAGE2 OK"
 
-echo "PASS: stage1 booted and reported over COM1"
+echo "PASS: boot chain reached stage2"
