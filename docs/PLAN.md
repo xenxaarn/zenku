@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 4 complete; Phase 5 next
+**Status:** Phase 5 in progress (scheduler, fork/exec/wait complete; shell next)
 **Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
 **Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
@@ -778,15 +778,19 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
 
 ### Phase 5 — Scheduler, fork/exec/wait, libc, shell (≈4 sessions)
 
-* Task/process model, round-robin preemptive scheduler, idle task, sleep queues.
-* COW `fork` with page refcounts, `execve` with argv/envp, `wait4`, orphan
-  reparenting, `kill` basics.
-* `brk`, anonymous `mmap`, `munmap`, guard-page stack growth.
-* Tiny libc + crt0 + static linking; `init`, `sh`, `ls`, `cat`, `echo`, `pwd`,
-  `ps`, `kill`, `sleep`, `uname`, `clear`, `wc`, `head`.
-* Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
-* Stress tests: 100 sequential forks, COW write separation, fork bomb capped by
-  a process limit, exec failure rollback.
+* [x] Task/process model, round-robin preemptive scheduler, return-to-kernel
+  idle path.
+* [x] Eager-copy `fork`, `execve` with argv, blocking `wait4`, orphan
+  reparenting, per-process fd tables.
+* [ ] COW `fork` with page refcounts, `kill` basics, sleep queues.
+* [ ] `brk`, anonymous `mmap`, `munmap`, guard-page stack growth.
+* [x] Shared `crt0`, user ABI header; `init`, `echo`.
+* [ ] Tiny libc + `sh`, `ls`, `cat`, `pwd`, `ps`, `kill`, `sleep`, `uname`,
+  `clear`, `wc`, `head`.
+* [ ] Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
+* [x] `make test-proc`: fork/exec/wait, fd inheritance, timer preemption.
+* [ ] Stress tests: 100 sequential forks, COW write separation, fork bomb
+  capped by a process limit, exec failure rollback.
 
 **Accept:** interactive shell runs `ls /`, `cat /etc/motd`, `echo hi | wc`,
 `ps` shows init/sh/ps, Ctrl-D exits, and the system remains responsive after

@@ -7,9 +7,33 @@ contains the bootloader, the kernel, and a read-only ext2 root filesystem.
 
 The kernel codename is **Thunder**.
 
-## Status: Phase 4 complete
+## Status: Phase 5 in progress
 
-Phase 4 now covers the filesystem and user-mode paths:
+Phase 5 has the process core working:
+
+- per-process PML4 address spaces: the kernel half is shared, user-space PML4
+  entries are private, and each process has its own 16 KiB kernel stack
+- a 16-slot process table with pid/ppid, states, zombies, and orphan
+  reparenting to pid 1 (or the kernel)
+- eager-copy `fork` (COW comes later), `execve` with argv copied through the
+  syscall boundary, and blocking `wait4` with exit status delivery
+- cooperative `yield` plus timer-driven round-robin preemption at 100 Hz;
+  IRQs taken in the kernel never reschedule
+- per-process file descriptor tables with pipe endpoints inherited on fork
+  and released on exit
+- user-space ABI in `libc/include/zenku.h`, a shared `user/crt0.asm`, and
+  `/bin/echo` loaded from the ext2 rootfs
+- `/init` demonstrates fork + exec + wait, pipe inheritance across fork, exit
+  statuses, and timer preemption
+- kernel command `ps`; `make test-proc` covers fork/exec/wait and preemption
+
+Still on the Phase 5 list: COW page refcounts, `brk`/`mmap`, a richer libc,
+the interactive `sh` with pipelines and redirection, more coreutils, and the
+fork-bomb/stress tests.
+
+## Phase 4: filesystem and user mode
+
+Phase 4 covered the filesystem and user-mode paths:
 
 - ramdisk block device over the initrd (512-byte blocks, direct map)
 - ext2 read-only mount in the kernel, sharing `fs/ext2.c` with stage3
@@ -31,8 +55,9 @@ Phase 4 now covers the filesystem and user-mode paths:
 - `make test-user` checks ring-3 entry, syscalls, pipes, bad-pointer
   rejection, and a clean exit back to the shell
 
-Phase 4 is complete. Per-process address spaces are deferred to the scheduler
-in Phase 5; the current loader reuses the kernel PML4.
+Phase 4 delivered the VFS and ring-3 foundation. The Phase 5 scheduler now
+gives each process its own address space; the old single-process loader has
+been retired.
 
 Phase 3 completed the interactive path:
 
@@ -101,7 +126,7 @@ media contract is documented in [`docs/boot-protocol.md`](docs/boot-protocol.md)
 | 2 | GDT/TSS/IDT, exceptions, PIC/PIT, PMM/VMM/heap | **Complete** |
 | 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | **Complete** |
 | 4 | VFS, ext2 mount, ring 3, core syscalls | **Complete** |
-| 5 | Scheduler, COW fork, exec/wait, libc, shell, coreutils | Pending |
+| 5 | Scheduler, COW fork, exec/wait, libc, shell, coreutils | **In progress** |
 | 6 | Graphical desktop, terminal window, mouse UI | Pending |
 | 7 | UEFI loader and dual-boot ISO | Pending |
 | 8 | SYSCALL fast path, SMEP/SMAP/NX, hardening, release | Pending |
@@ -143,6 +168,7 @@ make test-input      # boot, type 'help' via PS/2, check the console
 make test-serial     # type 'help' over COM1 IRQ4, check the console
 make test-fs         # list, cat, and stat files on the ext2 rootfs
 make test-user       # run /init in ring 3, check syscalls and exit
+make test-proc       # fork/exec/wait, pipe inheritance, timer preemption
 make check           # fast syntax check of C/asm/shell/python sources
 make check-link      # syntax check plus stage3 and kernel link checks
 make layout          # validate the boot image layout

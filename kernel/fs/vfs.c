@@ -30,9 +30,16 @@ struct fd_slot {
     uint64_t offset;
 };
 
+struct fd_table {
+    struct fd_slot slots[VFS_MAX_FDS];
+};
+
 static struct ramdisk g_ramdisk;
 static struct ext2_fs g_fs;
-static struct fd_slot g_fds[VFS_MAX_FDS];
+static struct fd_table g_fd_tables[VFS_MAX_FD_TABLES];
+static bool g_fd_table_used[VFS_MAX_FD_TABLES];
+static struct fd_slot *g_fds;
+static int g_active_table;
 static bool g_ready;
 
 static bool is_dev_root(const char *path)
@@ -102,7 +109,11 @@ int vfs_init(uint64_t initrd_phys, uint64_t initrd_size)
         return -1;
     }
 
-    memset(g_fds, 0, sizeof(g_fds));
+    memset(&g_fd_tables[0], 0, sizeof(g_fd_tables[0]));
+    memset(g_fd_table_used, 0, sizeof(g_fd_table_used));
+    g_fd_table_used[0] = true;
+    g_active_table = 0;
+    g_fds = g_fd_tables[0].slots;
     g_ready = true;
     kprintf("vfs: ext2 mounted, %u KiB blocks, %u inodes, %u groups\n",
             g_fs.block_size / 1024, g_fs.inodes_count, g_fs.group_count);
@@ -357,6 +368,82 @@ int fd_close(int fd)
     }
     memset(slot, 0, sizeof(*slot));
     return 0;
+}
+
+static struct fd_slot *table_slots(int id)
+{
+    if (id < 0 || id >= VFS_MAX_FD_TABLES || !g_fd_table_used[id]) {
+        return NULL;
+    }
+    return g_fd_tables[id].slots;
+}
+
+int vfs_fdtable_create(void)
+{
+    for (int id = 1; id < VFS_MAX_FD_TABLES; id++) {
+        if (g_fd_table_used[id]) {
+            continue;
+        }
+        memset(&g_fd_tables[id], 0, sizeof(g_fd_tables[id]));
+        g_fd_table_used[id] = true;
+        return id;
+    }
+    return -EMFILE;
+}
+
+int vfs_fdtable_clone(int id)
+{
+    struct fd_slot *src = table_slots(id);
+    int dst_id;
+    struct fd_slot *dst;
+
+    if (!src) {
+        return -EBADF;
+    }
+    dst_id = vfs_fdtable_create();
+    if (dst_id < 0) {
+        return dst_id;
+    }
+    dst = g_fd_tables[dst_id].slots;
+    memcpy(dst, src, sizeof(g_fd_tables[dst_id].slots));
+
+    for (int i = 0; i < VFS_MAX_FDS; i++) {
+        if (dst[i].kind == FD_PIPE) {
+            pipe_add_end(dst[i].pipe, dst[i].pipe_write_end);
+        }
+    }
+    return dst_id;
+}
+
+void vfs_fdtable_destroy(int id)
+{
+    struct fd_slot *slots = table_slots(id);
+
+    if (!slots || id == 0) {
+        return;
+    }
+    for (int i = 0; i < VFS_MAX_FDS; i++) {
+        if (slots[i].kind == FD_PIPE) {
+            pipe_drop_end(slots[i].pipe, slots[i].pipe_write_end);
+        }
+        memset(&slots[i], 0, sizeof(slots[i]));
+    }
+    g_fd_table_used[id] = false;
+    if (g_active_table == id) {
+        vfs_fdtable_select(0);
+    }
+}
+
+void vfs_fdtable_select(int id)
+{
+    struct fd_slot *slots = table_slots(id);
+
+    if (!slots) {
+        slots = g_fd_tables[0].slots;
+        id = 0;
+    }
+    g_active_table = id;
+    g_fds = slots;
 }
 
 int fd_fstat(int fd, struct vfs_stat *out)

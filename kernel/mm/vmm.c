@@ -2,6 +2,7 @@
 #include <kpanic.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include <string.h>
 #include <types.h>
 
 #define PHYS_MAP_BASE 0xFFFF800000000000ull
@@ -23,9 +24,10 @@ static inline uint64_t entry_addr(uint64_t entry)
     return entry & PTE_ADDR_MASK;
 }
 
-static uint64_t *vmm_walk(uint64_t virt, bool create, uint64_t flags)
+static uint64_t *space_walk(uint64_t *pml4, uint64_t virt, bool create,
+                            uint64_t flags)
 {
-    uint64_t *table = g_pml4;
+    uint64_t *table = pml4;
     unsigned indexes[3];
 
     indexes[0] = PML4_INDEX(virt);
@@ -46,6 +48,7 @@ static uint64_t *vmm_walk(uint64_t virt, bool create, uint64_t flags)
             if (frame == 0) {
                 return NULL;
             }
+            memset(phys_to_ptr(frame), 0, PAGE_SIZE);
             *entry = frame | VMM_KERNEL_FLAGS;
         }
 
@@ -66,6 +69,157 @@ static uint64_t *vmm_walk(uint64_t virt, bool create, uint64_t flags)
     }
 
     return &table[PT_INDEX(virt)];
+}
+
+static uint64_t *vmm_walk(uint64_t virt, bool create, uint64_t flags)
+{
+    return space_walk(g_pml4, virt, create, flags);
+}
+
+static int clone_level(uint64_t src_phys, uint64_t dst_phys, unsigned level)
+{
+    uint64_t *src = phys_to_ptr(src_phys);
+    uint64_t *dst = phys_to_ptr(dst_phys);
+
+    for (unsigned i = 0; i < 512; i++) {
+        uint64_t se = src[i];
+        uint64_t frame;
+
+        if (!(se & PTE_PRESENT)) {
+            continue;
+        }
+        if (se & PTE_HUGE) {
+            return -1;
+        }
+
+        if (level == 1) {
+            frame = pmm_alloc_frame();
+            if (frame == 0) {
+                return -1;
+            }
+            memcpy(phys_to_ptr(frame), phys_to_ptr(entry_addr(se)), PAGE_SIZE);
+            dst[i] = frame | (se & ~PTE_ADDR_MASK);
+            continue;
+        }
+
+        frame = pmm_alloc_frame();
+        if (frame == 0) {
+            return -1;
+        }
+        memset(phys_to_ptr(frame), 0, PAGE_SIZE);
+        dst[i] = frame | (se & ~PTE_ADDR_MASK);
+        if (clone_level(entry_addr(se), frame, level - 1) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static void free_level(uint64_t table_phys, unsigned level)
+{
+    uint64_t *table = phys_to_ptr(table_phys);
+
+    for (unsigned i = 0; i < 512; i++) {
+        uint64_t entry = table[i];
+
+        if (!(entry & PTE_PRESENT)) {
+            continue;
+        }
+        if (level == 1) {
+            pmm_free_frame(entry_addr(entry));
+            continue;
+        }
+        if (entry & PTE_HUGE) {
+            continue;
+        }
+        free_level(entry_addr(entry), level - 1);
+        pmm_free_frame(entry_addr(entry));
+    }
+}
+
+uint64_t vmm_space_create(void)
+{
+    uint64_t phys = pmm_alloc_frame();
+    uint64_t *pml4;
+
+    if (phys == 0) {
+        return 0;
+    }
+    pml4 = phys_to_ptr(phys);
+    memset(pml4, 0, PAGE_SIZE);
+
+    /* Kernel half is shared with every address space. */
+    for (unsigned i = 256; i < 512; i++) {
+        pml4[i] = g_pml4[i];
+    }
+    return phys;
+}
+
+uint64_t vmm_space_clone(uint64_t src_phys)
+{
+    uint64_t dst_phys = vmm_space_create();
+    uint64_t *src;
+    uint64_t *dst;
+
+    if (dst_phys == 0) {
+        return 0;
+    }
+
+    src = phys_to_ptr(src_phys);
+    dst = phys_to_ptr(dst_phys);
+    for (unsigned i = 0; i < 256; i++) {
+        uint64_t frame;
+
+        if (!(src[i] & PTE_PRESENT)) {
+            continue;
+        }
+        frame = pmm_alloc_frame();
+        if (frame == 0) {
+            vmm_space_destroy(dst_phys);
+            return 0;
+        }
+        memset(phys_to_ptr(frame), 0, PAGE_SIZE);
+        dst[i] = frame | (src[i] & ~PTE_ADDR_MASK);
+        if (clone_level(entry_addr(src[i]), frame, 3) != 0) {
+            vmm_space_destroy(dst_phys);
+            return 0;
+        }
+    }
+    return dst_phys;
+}
+
+void vmm_space_destroy(uint64_t pml4_phys)
+{
+    uint64_t *pml4;
+
+    if (!pml4_phys) {
+        return;
+    }
+
+    pml4 = phys_to_ptr(pml4_phys);
+    for (unsigned i = 0; i < 256; i++) {
+        if (!(pml4[i] & PTE_PRESENT)) {
+            continue;
+        }
+        free_level(entry_addr(pml4[i]), 3);
+        pmm_free_frame(entry_addr(pml4[i]));
+        pml4[i] = 0;
+    }
+    pmm_free_frame(pml4_phys);
+}
+
+void vmm_space_switch(uint64_t pml4_phys)
+{
+    if (pml4_phys == 0) {
+        return;
+    }
+    g_pml4 = phys_to_ptr(pml4_phys);
+    __asm__ volatile("mov %0, %%cr3" : : "r"(pml4_phys) : "memory");
+}
+
+uint64_t vmm_kernel_space(void)
+{
+    return VMM_PML4_PHYS;
 }
 
 int vmm_init(void)

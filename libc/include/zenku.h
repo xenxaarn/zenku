@@ -26,8 +26,12 @@ typedef long off_t;
 #define SYS_fstat   5
 #define SYS_lseek   8
 #define SYS_pipe    22
+#define SYS_yield   24
 #define SYS_getpid  39
+#define SYS_fork    57
+#define SYS_execve  59
 #define SYS_exit    60
+#define SYS_wait4   61
 #define SYS_getppid 110
 
 struct zenku_stat {
@@ -97,6 +101,27 @@ static inline long sys_fstat(int fd, struct zenku_stat *st)
 static inline long sys_pipe(int fds[2])
 {
     return syscall3(SYS_pipe, (long)fds, 0, 0);
+}
+
+static inline long sys_yield(void)
+{
+    return syscall1(SYS_yield, 0);
+}
+
+static inline long sys_fork(void)
+{
+    return syscall1(SYS_fork, 0);
+}
+
+static inline long sys_execve(const char *path, char *const argv[],
+                              char *const envp[])
+{
+    return syscall3(SYS_execve, (long)path, (long)argv, (long)envp);
+}
+
+static inline long sys_wait4(long pid, int *status, int options)
+{
+    return syscall3(SYS_wait4, pid, (long)status, options);
 }
 
 static inline long sys_getpid(void)

@@ -17,7 +17,7 @@ KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
                 kernel/arch/x86_64/irq.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
                 kernel/fs/ramdisk.c kernel/fs/vfs.c kernel/fs/devfs.c kernel/fs/pipe.c fs/ext2.c \
-                kernel/exec/user.c kernel/syscall/syscall.c \
+                kernel/exec/loader.c kernel/sched/process.c kernel/syscall/syscall.c \
                 drivers/pic.c drivers/pit.c drivers/ps2.c drivers/mouse.c drivers/serial.c \
                 lib/string.c lib/kio.c
 KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
@@ -35,6 +35,8 @@ TEST_IMAGE      := $(BUILD)/test/boot.img
 KERNEL_ELF      := $(BUILD)/kernel.elf
 KERNEL_TEST_ELF := $(BUILD)/test/kernel.elf
 USER_INIT_ELF   := $(BUILD)/user/init.elf
+USER_ECHO_ELF   := $(BUILD)/user/echo.elf
+USER_BIN_DIR    := $(BUILD)/user/bin
 ROOTFS          := $(BUILD)/rootfs.ext2
 ROOTFS_TEST     := $(BUILD)/test/rootfs.ext2
 ISO             := $(BUILD)/os.iso
@@ -47,7 +49,7 @@ KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
 KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
                     $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
 
-.PHONY: all iso run debug test test-input test-serial test-fs test-user check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
+.PHONY: all iso run debug test test-input test-serial test-fs test-user test-proc check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
 
 all: iso
 
@@ -175,12 +177,24 @@ $(BUILD)/user/obj/%.o: %.c | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
 	$(CC) $(USER_CFLAGS) -c -o $@ $<
 
-$(USER_INIT_ELF): $(BUILD)/user/obj/user/init/init.o user/user.ld
+$(BUILD)/user/obj/%.o: %.asm | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
-	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ $<
+	$(NASM) -f elf64 -o $@ $<
 
-$(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
-	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 32 $(USER_INIT_ELF)
+$(USER_INIT_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/init/init.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/init/init.o
+
+$(USER_ECHO_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/echo.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/echo.o
+
+$(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
+	@mkdir -p $(USER_BIN_DIR)
+	cp $(USER_ECHO_ELF) $(USER_BIN_DIR)/echo
+	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 32 $(USER_INIT_ELF) $(USER_BIN_DIR)
 
 $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
@@ -220,6 +234,9 @@ test-fs: $(ISO)
 
 test-user: $(ISO)
 	QEMU=$(QEMU) scripts/run-user-test.sh $(ISO)
+
+test-proc: $(ISO)
+	QEMU=$(QEMU) scripts/run-proc-test.sh $(ISO)
 
 check:
 	scripts/syntax-check.sh

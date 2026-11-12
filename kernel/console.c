@@ -6,11 +6,11 @@
 #include <mm/pmm.h>
 #include <mouse.h>
 #include <pit.h>
+#include <process.h>
 #include <ps2.h>
 #include <string.h>
 #include <tty.h>
 #include <types.h>
-#include <user.h>
 #include <version.h>
 #include <vfs.h>
 
@@ -729,7 +729,7 @@ static void command_run(void)
 
     if (strcmp(g_line, "help") == 0) {
         console_puts("commands: help, fetch, colors, ls, cat, stat, devtest, "
-                     "init, mem, ticks, uptime, version, clear\n");
+                     "init, ps, mem, ticks, uptime, version, clear\n");
     } else if (strcmp(g_line, "fetch") == 0) {
         command_fetch();
     } else if (strncmp(g_line, "ls", 2) == 0 &&
@@ -759,10 +759,13 @@ static void command_run(void)
         }
     } else if (strcmp(g_line, "init") == 0) {
         if (vfs_ready()) {
-            (void)user_exec("/init");
+            (void)process_run("/init");
         } else {
             console_puts("init: root filesystem not mounted\n");
         }
+    } else if (strcmp(g_line, "ps") == 0) {
+        console_puts("  pid ppid state  name\n");
+        process_print();
     } else if (strcmp(g_line, "devtest") == 0) {
         if (vfs_ready()) {
             command_devtest();

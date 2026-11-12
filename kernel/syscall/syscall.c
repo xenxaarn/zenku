@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <kio.h>
 #include <mm/vmm.h>
+#include <process.h>
 #include <string.h>
 #include <syscall.h>
 #include <types.h>
@@ -11,8 +12,6 @@
 #define USER_SPACE_END 0x0000800000000000ull
 
 #define MAX_USER_PATH 256
-
-extern void user_exit_to_kernel(void) NORETURN;
 
 static bool user_range_ok(uint64_t addr, uint64_t len)
 {
@@ -103,12 +102,6 @@ static int64_t sys_fstat(int fd, uint64_t stat_ptr)
     return 0;
 }
 
-static int64_t sys_exit(int status)
-{
-    kprintf("user: exit status %d\n", status);
-    user_exit_to_kernel();
-}
-
 static int64_t sys_pipe(uint64_t fds_ptr)
 {
     int fds[2];
@@ -127,12 +120,58 @@ static int64_t sys_pipe(uint64_t fds_ptr)
 
 static int64_t sys_getpid(void)
 {
-    /* One user process runs at a time in Phase 4. */
-    return 1;
+    return process_getpid();
 }
 
 static int64_t sys_getppid(void)
 {
+    return process_getppid();
+}
+
+static int64_t sys_execve(struct regs *r, uint64_t path_ptr, uint64_t argv_ptr)
+{
+    char path[MAX_USER_PATH];
+    char args[PROCESS_MAX_ARGS][PROCESS_ARG_MAX];
+    char *argv[PROCESS_MAX_ARGS];
+    int argc = 0;
+    int rc;
+
+    rc = copy_user_path(path_ptr, path, sizeof(path));
+    if (rc < 0) {
+        return rc;
+    }
+
+    if (argv_ptr) {
+        for (int i = 0; i < PROCESS_MAX_ARGS; i++) {
+            uint64_t slot = argv_ptr + (uint64_t)i * sizeof(uint64_t);
+            uint64_t arg_ptr;
+
+            if (!user_range_ok(slot, sizeof(uint64_t))) {
+                return -EFAULT;
+            }
+            arg_ptr = *(const uint64_t *)(uintptr_t)slot;
+            if (arg_ptr == 0) {
+                break;
+            }
+            rc = copy_user_path(arg_ptr, args[i], PROCESS_ARG_MAX);
+            if (rc < 0) {
+                return rc;
+            }
+            argv[i] = args[i];
+            argc++;
+        }
+    }
+
+    rc = process_exec(r, path, argc, argv);
+    return rc;
+}
+
+static int64_t sys_wait(int pid, uint64_t status_ptr, struct regs *r)
+{
+    if (status_ptr && !user_range_ok(status_ptr, sizeof(int))) {
+        return -EFAULT;
+    }
+    process_wait(r, pid, status_ptr);
     return 0;
 }
 
@@ -162,15 +201,35 @@ void syscall_dispatch(struct regs *r)
     case SYS_pipe:
         ret = sys_pipe(r->rdi);
         break;
+    case SYS_yield:
+        process_yield(r);
+        return;
     case SYS_getpid:
         ret = sys_getpid();
         break;
     case SYS_getppid:
         ret = sys_getppid();
         break;
-    case SYS_exit:
-        ret = sys_exit((int)r->rdi);
+    case SYS_fork:
+        ret = process_fork(r);
         break;
+    case SYS_execve:
+        ret = sys_execve(r, r->rdi, r->rsi);
+        if (ret < 0) {
+            r->rax = (uint64_t)ret;
+        }
+        /* On success process_exec() replaced the frame; do not touch it. */
+        return;
+    case SYS_wait4:
+        ret = sys_wait((int)r->rdi, r->rsi, r);
+        if (ret < 0) {
+            r->rax = (uint64_t)ret;
+        }
+        /* sys_wait() sets rax when it reaps and switches away otherwise. */
+        return;
+    case SYS_exit:
+        process_exit(r, (int)r->rdi);
+        return;
     default:
         kprintf("syscall: unknown number %llu\n", r->rax);
         ret = -ENOSYS;

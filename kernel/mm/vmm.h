@@ -33,6 +33,14 @@ uint64_t vmm_translate(uint64_t virt);
 bool vmm_is_mapped(uint64_t virt);
 void vmm_flush_tlb(uint64_t virt);
 
+/* Per-process address spaces. The kernel half is shared; only PML4 entries
+ * 0..255 (user space) are private. */
+uint64_t vmm_space_create(void);
+uint64_t vmm_space_clone(uint64_t src_phys);
+void vmm_space_destroy(uint64_t pml4_phys);
+void vmm_space_switch(uint64_t pml4_phys);
+uint64_t vmm_kernel_space(void);
+
 void vmm_selftest(void);
 
 #endif /* ZENKU_VMM_H */

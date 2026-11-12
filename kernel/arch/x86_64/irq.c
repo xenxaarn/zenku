@@ -1,6 +1,7 @@
 #include <arch/x86_64/irq.h>
 #include <io.h>
 #include <pic.h>
+#include <process.h>
 #include <types.h>
 
 static irq_handler_t g_handlers[PIC_IRQ_COUNT];
@@ -43,4 +44,10 @@ void irq_dispatch(uint8_t irq, struct regs *r)
     }
 
     pic_send_eoi(irq);
+
+    /* Preempt user code on the timer tick. IRQs taken in the kernel are not
+     * rescheduled: syscalls handle their own blocking. */
+    if (irq == 0 && (r->cs & 3)) {
+        process_tick(r);
+    }
 }

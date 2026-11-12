@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the read-only ext2 root filesystem embedded in the ISO.
 #
-#   mkrootfs.sh <kernel.elf> <out.ext2> [size-mib] [init.elf]
+#   mkrootfs.sh <kernel.elf> <out.ext2> [size-mib] [init.elf] [bin-dir]
 #
 # The image is populated from a staging directory, so it contains /kernel and
 # a short README. Keep the feature set small: the Zenku ext2 reader supports
@@ -12,6 +12,7 @@ KERNEL=${1:?usage: mkrootfs.sh <kernel.elf> <out.ext2> [size-mib]}
 OUT=${2:?usage: mkrootfs.sh <kernel.elf> <out.ext2> [size-mib]}
 SIZE_MIB=${3:-32}
 INIT=${4:-}
+BINDIR=${5:-}
 MKE2FS=${MKE2FS:-mke2fs}
 
 [ -f "$KERNEL" ] || { echo "mkrootfs: missing kernel: $KERNEL" >&2; exit 1; }
@@ -32,6 +33,15 @@ if [ -n "$INIT" ]; then
     cp "$INIT" "$STAGE/init"
     chmod 755 "$STAGE/init"
 fi
+mkdir -p "$STAGE/bin"
+if [ -n "$BINDIR" ]; then
+    [ -d "$BINDIR" ] || { echo "mkrootfs: missing bin dir: $BINDIR" >&2; exit 1; }
+    for program in "$BINDIR"/*; do
+        [ -f "$program" ] || continue
+        cp "$program" "$STAGE/bin/$(basename "$program")"
+        chmod 755 "$STAGE/bin/$(basename "$program")"
+    done
+fi
 mkdir -p "$STAGE/etc"
 cat > "$STAGE/README" <<'EOF'
 Zenku root filesystem.
@@ -43,7 +53,7 @@ cat > "$STAGE/etc/motd" <<'EOF'
 Welcome to Zenku.
 
 This root filesystem is a read-only ext2 image loaded by the bootloader.
-Phase 4 mounts it in the kernel; user space comes next.
+Phase 5 runs /init, forks children, and executes programs from /bin.
 EOF
 cat > "$STAGE/etc/hostname" <<'EOF'
 zenku

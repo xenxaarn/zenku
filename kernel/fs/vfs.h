@@ -28,6 +28,7 @@
 #define SEEK_END 2
 
 #define VFS_MAX_FDS 32
+#define VFS_MAX_FD_TABLES 32
 
 struct vfs_stat {
     uint32_t ino;
@@ -52,6 +53,13 @@ int fd_fstat(int fd, struct vfs_stat *out);
 
 /* Create a non-blocking pipe; fds[0] is the read end, fds[1] the write end. */
 int vfs_pipe(int fds[2]);
+
+/* File descriptor tables. Table 0 belongs to the kernel console; each
+ * process owns (and inherits on fork) its own table. */
+int vfs_fdtable_create(void);
+int vfs_fdtable_clone(int id);
+void vfs_fdtable_destroy(int id);
+void vfs_fdtable_select(int id);
 
 int vfs_stat(const char *path, struct vfs_stat *out);
 int64_t vfs_read_file(const char *path, void *buf, uint64_t cap);

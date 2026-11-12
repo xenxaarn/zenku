@@ -49,7 +49,7 @@ static void print_uint(unsigned long value)
     }
 }
 
-void _start(void)
+int main(long argc, char **argv)
 {
     char buf[64];
     struct zenku_stat st;
@@ -59,6 +59,9 @@ void _start(void)
     long pid;
     long ppid;
     unsigned short cs;
+
+    (void)argc;
+    (void)argv;
 
     print("init: hello from ring 3\n");
 
@@ -137,6 +140,99 @@ void _start(void)
         print(" bytes\n");
     }
 
+    {
+        static char *const echo_argv[] = {
+            "echo", "hello", "from", "exec", 0
+        };
+        int status = -1;
+        long child;
+
+        child = sys_fork();
+        if (child == 0) {
+            sys_execve("/bin/echo", echo_argv, 0);
+            print("init: exec /bin/echo FAILED\n");
+            return 1;
+        } else if (child > 0) {
+            print("init: forked child ");
+            print_uint((unsigned long)child);
+            print("\n");
+            if (sys_wait4(child, &status, 0) == child && status == 0) {
+                print("init: child exec and exit ok\n");
+            } else {
+                print("init: child wait FAILED\n");
+            }
+        } else {
+            print("init: fork FAILED\n");
+        }
+    }
+
+    {
+        int pfd[2];
+        long writer;
+        int status = -1;
+        char pbuf[32];
+
+        if (sys_pipe(pfd) == 0) {
+            writer = sys_fork();
+            if (writer == 0) {
+                sys_close(pfd[0]);
+                sys_write(pfd[1], "pipe across fork", 16);
+                sys_close(pfd[1]);
+                sys_exit(7);
+            }
+            sys_close(pfd[1]);
+            do {
+                n = sys_read(pfd[0], pbuf, sizeof(pbuf));
+                if (n == -11) {
+                    sys_yield();
+                }
+            } while (n == -11);
+            if (n == 16 && pbuf[0] == 'p') {
+                print("init: pipe across fork ok\n");
+            } else {
+                print("init: pipe across fork FAILED\n");
+            }
+            sys_close(pfd[0]);
+            if (writer > 0 && sys_wait4(writer, &status, 0) == writer &&
+                status == 7) {
+                print("init: child exit status 7 ok\n");
+            } else {
+                print("init: child exit status FAILED\n");
+            }
+        } else {
+            print("init: pipe across fork FAILED\n");
+        }
+    }
+
+    {
+        long a;
+        long b;
+        int s1 = -1;
+        int s2 = -1;
+
+        a = sys_fork();
+        if (a == 0) {
+            volatile unsigned long x = 0;
+
+            for (unsigned long i = 0; i < 3000000UL; i++) {
+                x += i;
+            }
+            print("preempt: child A finished\n");
+            sys_exit(0);
+        }
+        b = sys_fork();
+        if (b == 0) {
+            print("preempt: child B ran\n");
+            sys_exit(0);
+        }
+        if (a > 0 && sys_wait4(a, &s1, 0) == a) {
+            print("preempt: child A reaped\n");
+        }
+        if (b > 0 && sys_wait4(b, &s2, 0) == b) {
+            print("preempt: child B reaped\n");
+        }
+    }
+
     print("init: exiting with status 0\n");
-    sys_exit(0);
+    return 0;
 }
