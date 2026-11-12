@@ -71,6 +71,7 @@ def main() -> int:
     ap.add_argument("--len", type=int, default=32)
     ap.add_argument("--wait", type=float, default=4.0)
     ap.add_argument("--screendump", default="", help="save a framebuffer image")
+    ap.add_argument("--keys", default="", help="comma-separated sendkey names")
     args = ap.parse_args()
 
     iso = os.path.abspath(args.iso)
@@ -99,6 +100,8 @@ def main() -> int:
         time.sleep(args.wait)
         n = args.len
         cmds = []
+        if args.keys:
+            cmds += ["sendkey " + key for key in args.keys.split(",")]
         if args.screendump:
             cmds.append(f"screendump {os.path.abspath(args.screendump)}")
         cmds += [

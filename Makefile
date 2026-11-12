@@ -12,10 +12,11 @@ STAGE3_ASMS  := boot/stage3/entry.asm
 STAGE3_LD    := linker/stage3.ld
 
 KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
+                kernel/console.c kernel/desktop.c \
                 kernel/arch/x86_64/gdt.c kernel/arch/x86_64/idt.c \
                 kernel/arch/x86_64/irq.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
-                drivers/pic.c drivers/pit.c \
+                drivers/pic.c drivers/pit.c drivers/ps2.c \
                 lib/string.c lib/kio.c
 KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
                 kernel/arch/x86_64/gdt_flush.asm \
@@ -42,7 +43,7 @@ KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
 KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
                     $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
 
-.PHONY: all iso run debug test check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
+.PHONY: all iso run debug test test-input check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
 
 all: iso
 
@@ -196,6 +197,9 @@ debug: $(ISO)
 test: $(TEST_ISO)
 	QEMU=$(QEMU) scripts/run-tests.sh $(TEST_ISO)
 
+test-input: $(ISO)
+	QEMU=$(QEMU) scripts/run-input-test.sh $(ISO)
+
 check:
 	scripts/syntax-check.sh
 
@@ -252,6 +256,7 @@ help:
 	@echo "  run        boot the ISO in QEMU with a graphical display"
 	@echo "  debug      boot under QEMU with a GDB stub (-s -S)"
 	@echo "  test       headless boot + serial assertions"
+	@echo "  test-input boot, type help via PS/2, check the console"
 	@echo "  test-faults inject #DE/#UD/#GP/#PF and check panics"
 	@echo "  check      fast syntax check of C/asm/shell/python"
 	@echo "  check-link syntax check plus stage3 and kernel links"

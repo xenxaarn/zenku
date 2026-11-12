@@ -30,6 +30,14 @@ void serial_putc(char c)
     outb(COM1, (uint8_t)c);
 }
 
+int serial_poll_char(void)
+{
+    if (!(inb(COM1 + 5) & 0x01)) {
+        return -1;
+    }
+    return inb(COM1);
+}
+
 void serial_write(const char *s, size_t n)
 {
     for (size_t i = 0; i < n; i++) {

@@ -3,6 +3,8 @@
 #include <arch/x86_64/irq.h>
 #include <boot_info.h>
 #include <compiler.h>
+#include <console.h>
+#include <desktop.h>
 #include <fb.h>
 #include <io.h>
 #include <kio.h>
@@ -12,6 +14,7 @@
 #include <mm/vmm.h>
 #include <pic.h>
 #include <pit.h>
+#include <ps2.h>
 #include <types.h>
 #include <version.h>
 
@@ -86,6 +89,9 @@ static void cpu_init(void)
     kprintf("kernel: idt %u vectors, pic remapped to 0x%x/0x%x\n",
             IDT_VECTORS, IDT_IRQ_BASE, IDT_IRQ_BASE + 8);
     kprintf("kernel: pit configured at %u Hz\n", pit_frequency());
+
+    ps2_init();
+    kprintf("kernel: ps2 keyboard irq1 enabled\n");
 }
 
 void kmain(struct boot_info *bi)
@@ -153,16 +159,27 @@ void kmain(struct boot_info *bi)
     pit_wait_ticks(10);
     kprintf("kernel: timer running (%llu ticks)\n", pit_ticks());
 
+    desktop_init(bi);
+
 #ifdef TEST_EXIT
     kprintf("kernel: ALL TESTS PASSED\n");
-#endif
     kprintf("kernel: entering idle loop\n");
-#ifdef TEST_EXIT
     outb(0x501, 0x10);
     cpu_halt();
 #endif
 
+    kprintf("kernel: entering idle loop\n");
     for (;;) {
+        int key;
+
         __asm__ volatile("sti; hlt" : : : "memory");
+
+        while ((key = keyboard_pop()) >= 0) {
+            console_input(key);
+        }
+        key = serial_poll_char();
+        if (key >= 0) {
+            console_input(key);
+        }
     }
 }

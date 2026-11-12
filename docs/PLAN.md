@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 2 complete; Phase 3 next
+**Status:** Phase 2 complete; Phase 3 in progress
 **Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
 **Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
@@ -722,7 +722,7 @@ a deliberate ELF corruption produces a clean stage3 error, not a triple fault.
 readable panic; `make test` reports `ALL TESTS PASSED`; no frame leaks after
 10k alloc/free cycles.
 
-### Phase 3 — Drivers, console, desktop skeleton (≈2 sessions)
+### Phase 3 — Drivers, console, desktop skeleton (≈2 sessions) — IN PROGRESS
 
 * Robust serial driver (IRQ4 RX, TX ring), log tags.
 * PS/2 controller init, keyboard decoding (shift/ctrl/alt, E0, repeat), mouse
@@ -923,6 +923,11 @@ and long mode; stage3 loads the ELF64 kernel from ext2 and builds the direct
 and higher-half maps; the kernel draws the splash and reports over COM1.
 `make run` shows the splash, `make test` exits 33.
 
-Phase 3 begins with serial RX, the PS/2 controller and keyboard/mouse drivers,
-a double-buffered framebuffer console, and the desktop skeleton. Every phase
-ends with `make test` passing and `make run` producing a usable screen.
+Phase 3 is in progress: the PS/2 keyboard, non-blocking serial input,
+framebuffer console, desktop skeleton, and interactive command prompt are
+implemented and covered by `make test-input`. Remaining work: serial RX
+interrupts, the PS/2 mouse and cursor, double buffering/scrollback, the tty
+line-discipline layer, and the clock.
+
+Every phase ends with `make test` passing and `make run` producing a usable
+screen.

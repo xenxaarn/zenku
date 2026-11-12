@@ -108,6 +108,41 @@ void fb_fill_rect(int x, int y, int w, int h, uint32_t rgb)
     }
 }
 
+void fb_scroll_up(int x, int y, int w, int h, int pixels, uint32_t rgb)
+{
+    if (!g_fb.ready || pixels <= 0 || pixels >= h) {
+        return;
+    }
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if ((uint32_t)x >= g_fb.width || (uint32_t)y >= g_fb.height) {
+        return;
+    }
+    if ((uint32_t)(x + w) > g_fb.width) {
+        w = (int)g_fb.width - x;
+    }
+    if ((uint32_t)(y + h) > g_fb.height) {
+        h = (int)g_fb.height - y;
+    }
+
+    for (int row = 0; row < h - pixels; row++) {
+        uint32_t *dst = g_fb.addr +
+                        (uint64_t)(y + row) * g_fb.pitch_pixels + x;
+        const uint32_t *src = g_fb.addr +
+                              (uint64_t)(y + row + pixels) *
+                              g_fb.pitch_pixels + x;
+
+        memmove(dst, src, (size_t)w * sizeof(uint32_t));
+    }
+    fb_fill_rect(x, y + h - pixels, w, pixels, rgb);
+}
+
 void fb_clear(uint32_t rgb)
 {
     if (!g_fb.ready) {

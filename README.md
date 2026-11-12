@@ -7,9 +7,23 @@ contains the bootloader, the kernel, and a read-only ext2 root filesystem.
 
 The kernel codename is **Raijin**.
 
-## Status: Phase 2
+## Status: Phase 3 (in progress)
 
-Phase 2 makes the kernel safe to fault and gives it memory to work with:
+Phase 3 has started with the interactive path:
+
+- PS/2 controller and keyboard (IRQ1), US layout, shift/ctrl/alt/caps, and
+  extended arrow/navigation keys
+- non-blocking COM1 receive, mirrored into the console
+- framebuffer text console with wrapping, scrolling, backspace, and tabs
+- desktop skeleton: wallpaper, taskbar, terminal window, and a live prompt
+- built-in commands: `help`, `mem`, `ticks`, `version`, `clear`
+- `make test-input` types `help` through the QEMU monitor and checks the
+  console path end to end
+
+Still to come in Phase 3: serial RX interrupts, PS/2 mouse, double buffering,
+a tty/line-discipline layer, clock, and richer desktop chrome.
+
+Phase 2 made the kernel safe to fault and gave it memory to work with:
 
 - GDT/TSS with a dedicated double-fault IST stack
 - 256-entry IDT with stubs for all CPU exceptions and 16 PIC IRQs
@@ -49,7 +63,7 @@ media contract is documented in [`docs/boot-protocol.md`](docs/boot-protocol.md)
 | 0 | Build system, stage1, ISO, serial test harness | **Complete** |
 | 1 | Stage1→stage2→stage3, E820/VBE/ISO9660, ext2+ELF64, long mode, higher-half kernel | **Complete** |
 | 2 | GDT/TSS/IDT, exceptions, PIC/PIT, PMM/VMM/heap | **Complete** |
-| 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | Next |
+| 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | **In progress** |
 | 4 | VFS, ext2 mount, ring 3, core syscalls | Pending |
 | 5 | Scheduler, COW fork, exec/wait, libc, shell, coreutils | Pending |
 | 6 | Graphical desktop, terminal window, mouse UI | Pending |
@@ -89,6 +103,7 @@ make                 # builds build/os.iso
 make run             # qemu-system-x86_64 -cdrom build/os.iso -m 2G -serial stdio
 make test            # headless boot; checks serial output and exit status
 make test-faults     # inject #DE/#UD/#GP/#PF and check the panic path
+make test-input      # boot, type 'help' via PS/2, check the console
 make check           # fast syntax check of C/asm/shell/python sources
 make check-link      # syntax check plus stage3 and kernel link checks
 make layout          # validate the boot image layout
@@ -137,6 +152,11 @@ kernel: idt 256 vectors, pic remapped to 0x20/0x28
 kernel: pit configured at 100 Hz
 kernel: enabling interrupts
 kernel: timer running (11 ticks)
+Zenku 0.0.1 (Raijin) - higher-half kernel
+memory managers online, PS/2 keyboard ready
+type 'help' for commands
+
+zenku> desktop: terminal ready (113x36 cells)
 kernel: ALL TESTS PASSED
 kernel: entering idle loop
 ```

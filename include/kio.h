@@ -10,6 +10,9 @@ void serial_putc(char c);
 void serial_write(const char *s, size_t n);
 void serial_puts(const char *s);
 
+/* Non-blocking COM1 receive; returns -1 when the FIFO is empty. */
+int serial_poll_char(void);
+
 /* Minimal formatted output: %c %s %d %i %u %x %X %p, with 0-padding width
  * and the l/ll length modifiers. */
 void kprintf(const char *fmt, ...);
