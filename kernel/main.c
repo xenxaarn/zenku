@@ -19,6 +19,7 @@
 #include <ps2.h>
 #include <serial.h>
 #include <types.h>
+#include <user.h>
 #include <version.h>
 
 #define PHYS_MAP_BASE 0xFFFF800000000000ull
@@ -181,6 +182,15 @@ void kmain(struct boot_info *bi)
 #endif
 
     kprintf("kernel: entering idle loop\n");
+
+    if (vfs_ready()) {
+        int rc = user_exec("/init");
+
+        if (rc != 0) {
+            kprintf("kernel: /init did not run (%d)\n", rc);
+        }
+    }
+
     bool mouse_reported = false;
     uint8_t last_buttons = 0;
     for (;;) {

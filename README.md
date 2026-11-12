@@ -9,19 +9,29 @@ The kernel codename is **Thunder**.
 
 ## Status: Phase 4 (in progress)
 
-Phase 4 has started with the filesystem path:
+Phase 4 now covers the filesystem and user-mode paths:
 
 - ramdisk block device over the initrd (512-byte blocks, direct map)
 - ext2 read-only mount in the kernel, sharing `fs/ext2.c` with stage3
 - VFS layer: path resolution, inode stat, directory walk, and a 32-slot file
   descriptor table (`open`, `read`, `write`, `lseek`, `close`, `fstat`)
 - devfs under `/dev`: `console`, `tty0`, `ttyS0`, `null`, `zero`
-- kernel commands: `ls`, `cat <path>`, `stat <path>`, `devtest`
+- ELF64 loader with user page mappings and a guard-checked user copy path
+- ring-3 entry through `iretq` with a TSS syscall stack, and clean return to
+  the kernel when the process exits
+- `int 0x80` syscalls: `read`, `write`, `open`, `close`, `lseek`, `fstat`,
+  `getpid`, `getppid`, `exit`
+- `/init` is built from `user/init/init.c`, stored in the ext2 rootfs, loaded
+  from the VFS, and run in ring 3 (it reports `cs 0x1b`)
+- kernel commands: `ls`, `cat <path>`, `stat <path>`, `devtest`, `init`
 - demo rootfs content: `/README`, `/etc/motd`, `/etc/hostname`, `/hello.txt`
 - `make test-fs` lists, cats, and stats files over COM1, then exercises devfs
   and confirms ext2 rejects writes with `EROFS`
+- `make test-user` checks ring-3 entry, syscalls, bad-pointer rejection, and a
+  clean exit back to the shell
 
-Still to come in Phase 4: pipefs, ELF loader, ring 3, and the first syscalls.
+Still to come in Phase 4: pipefs. Per-process address spaces are deferred to
+the scheduler in Phase 5; the current loader reuses the kernel PML4.
 
 Phase 3 completed the interactive path:
 
@@ -131,6 +141,7 @@ make test-faults     # inject #DE/#UD/#GP/#PF and check the panic path
 make test-input      # boot, type 'help' via PS/2, check the console
 make test-serial     # type 'help' over COM1 IRQ4, check the console
 make test-fs         # list, cat, and stat files on the ext2 rootfs
+make test-user       # run /init in ring 3, check syscalls and exit
 make check           # fast syntax check of C/asm/shell/python sources
 make check-link      # syntax check plus stage3 and kernel link checks
 make layout          # validate the boot image layout

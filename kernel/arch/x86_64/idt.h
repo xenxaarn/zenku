@@ -29,6 +29,7 @@ void isr_dispatch(struct regs *r);
 
 /* Provided by isr.asm. */
 extern void isr_default(void);
+extern void isr128(void);
 extern void (*const isr_stub_table[IDT_EXCEPTIONS + IDT_IRQ_COUNT])(void);
 
 #endif /* ZENKU_IDT_H */

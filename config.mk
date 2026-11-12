@@ -44,7 +44,7 @@ KERNEL_CFLAGS := \
   -ffreestanding -fno-pie -fno-pic -fno-stack-protector \
   -fno-stack-clash-protection -fno-builtin -fno-omit-frame-pointer \
   -mno-red-zone -mcmodel=kernel -mno-sse -mno-mmx -mno-80387 -mno-avx \
-  -Iinclude -Ikernel -Ikernel/fs -Idrivers -Ifs
+  -Iinclude -Ikernel -Ikernel/fs -Ikernel/exec -Ikernel/syscall -Idrivers -Ifs
 
 # 64-bit bootloader-stage compiler flags. Stage3 runs in long mode and shares
 # the freestanding ext2/string code with the kernel, so it is built as x86_64

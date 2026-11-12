@@ -5,6 +5,7 @@
 #include <kpanic.h>
 #include <kio.h>
 #include <string.h>
+#include <syscall.h>
 #include <types.h>
 
 struct idt_entry {
@@ -60,17 +61,24 @@ static const char *const g_exception_names[IDT_EXCEPTIONS] = {
     "reserved",
 };
 
-static void set_gate(unsigned vector, void (*handler)(void), uint8_t ist)
+static void set_gate_type(unsigned vector, void (*handler)(void), uint8_t ist,
+                          uint8_t type)
 {
     uint64_t address = (uint64_t)(uintptr_t)handler;
 
     g_idt[vector].offset_low = (uint16_t)(address & 0xFFFF);
     g_idt[vector].selector = GDT_KERNEL_CODE;
     g_idt[vector].ist = (uint8_t)(ist & 0x07);
-    g_idt[vector].type = 0x8E; /* present, DPL 0, 64-bit interrupt gate */
+    g_idt[vector].type = type;
     g_idt[vector].offset_mid = (uint16_t)((address >> 16) & 0xFFFF);
     g_idt[vector].offset_high = (uint32_t)(address >> 32);
     g_idt[vector].reserved = 0;
+}
+
+static void set_gate(unsigned vector, void (*handler)(void), uint8_t ist)
+{
+    /* Present, DPL 0, 64-bit interrupt gate. */
+    set_gate_type(vector, handler, ist, 0x8E);
 }
 
 void idt_init(void)
@@ -85,6 +93,9 @@ void idt_init(void)
 
     /* Double fault gets its own IST stack so a broken kernel stack is safe. */
     set_gate(8, isr_stub_table[8], 1);
+
+    /* int 0x80: present, DPL 3, 64-bit interrupt gate for user syscalls. */
+    set_gate_type(0x80, isr128, 0, 0xEE);
 
     g_idtr.limit = sizeof(g_idt) - 1;
     g_idtr.base = (uint64_t)(uintptr_t)&g_idt;
@@ -134,6 +145,10 @@ static void exception_panic(struct regs *r)
 
 void isr_dispatch(struct regs *r)
 {
+    if (r->vector == SYSCALL_VECTOR) {
+        syscall_dispatch(r);
+        return;
+    }
     if (r->vector < IDT_EXCEPTIONS) {
         exception_panic(r);
         return;

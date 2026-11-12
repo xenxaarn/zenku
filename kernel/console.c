@@ -10,6 +10,7 @@
 #include <string.h>
 #include <tty.h>
 #include <types.h>
+#include <user.h>
 #include <version.h>
 #include <vfs.h>
 
@@ -728,7 +729,7 @@ static void command_run(void)
 
     if (strcmp(g_line, "help") == 0) {
         console_puts("commands: help, fetch, colors, ls, cat, stat, devtest, "
-                     "mem, ticks, uptime, version, clear\n");
+                     "init, mem, ticks, uptime, version, clear\n");
     } else if (strcmp(g_line, "fetch") == 0) {
         command_fetch();
     } else if (strncmp(g_line, "ls", 2) == 0 &&
@@ -755,6 +756,12 @@ static void command_run(void)
             console_puts("usage: stat <path>\n");
         } else {
             command_stat(path);
+        }
+    } else if (strcmp(g_line, "init") == 0) {
+        if (vfs_ready()) {
+            (void)user_exec("/init");
+        } else {
+            console_puts("init: root filesystem not mounted\n");
         }
     } else if (strcmp(g_line, "devtest") == 0) {
         if (vfs_ready()) {

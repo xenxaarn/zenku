@@ -755,9 +755,17 @@ addressing is deferred polish.
 * Devfs (`console`, `tty0`, `ttyS0`, `null`, `zero`), pipefs.
   **Done:** devfs with a `devtest` command; pipefs is open.
 * ELF loader in kernel, user address spaces, TSS/RSP0, ring-3 entry.
+  **Done:** ELF64 ELF loader, user page mappings, TSS rsp0 syscall stack,
+  `iretq` to ring 3, and a saved-context exit back to the kernel. A shared
+  kernel PML4 is used for now; per-process address spaces land with the
+  scheduler in Phase 5.
 * `int 0x80` dispatch, usercopy with fixups, syscalls: `open`, `read`, `write`,
   `close`, `exit`, `lseek`, `fstat`, `getpid`, `getppid`.
+  **Done:** all listed syscalls plus bounds-checked user copies (unmapped
+  pointers return `EFAULT`). Precise exception fixups remain open.
 * Spawn `/init` from ext2; init prints files and exits.
+  **Done:** `/init` is built into the rootfs, reports `cs 0x1b`, reads
+  `/etc/motd`, and exits; the shell survives and can re-run it via `init`.
 
 **Accept:** `/init` runs in ring 3, `cat` of `/etc/motd` works, bad user
 pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland

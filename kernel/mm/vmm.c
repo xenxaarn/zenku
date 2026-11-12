@@ -23,7 +23,7 @@ static inline uint64_t entry_addr(uint64_t entry)
     return entry & PTE_ADDR_MASK;
 }
 
-static uint64_t *vmm_walk(uint64_t virt, bool create)
+static uint64_t *vmm_walk(uint64_t virt, bool create, uint64_t flags)
 {
     uint64_t *table = g_pml4;
     unsigned indexes[3];
@@ -49,6 +49,11 @@ static uint64_t *vmm_walk(uint64_t virt, bool create)
             *entry = frame | VMM_KERNEL_FLAGS;
         }
 
+        /* Every level must allow user access for a user page to be usable. */
+        if ((flags & PTE_USER) && !(*entry & PTE_USER)) {
+            *entry |= PTE_USER;
+        }
+
         if (*entry & PTE_HUGE) {
             /* A huge mapping cannot be split with the current design. */
             return NULL;
@@ -70,6 +75,15 @@ int vmm_init(void)
         kprintf("vmm: kernel PML4 entry is missing\n");
         return -1;
     }
+
+    /* Drop the bootloader's low identity map; the kernel only needs the
+     * higher-half window and the direct map from here on. */
+    if (g_pml4[0] & PTE_PRESENT) {
+        g_pml4[0] = 0;
+        __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3"
+                         : : : "rax", "memory");
+    }
+
     kprintf("vmm: page tables at 0x%llx, 4 KiB mappings ready\n",
             (uint64_t)VMM_PML4_PHYS);
     return 0;
@@ -83,7 +97,7 @@ int vmm_map(uint64_t virt, uint64_t phys, uint64_t flags)
         return -1;
     }
 
-    pte = vmm_walk(virt, true);
+    pte = vmm_walk(virt, true, flags);
     if (!pte) {
         return -1;
     }
@@ -115,7 +129,7 @@ int vmm_map_range(uint64_t virt, uint64_t phys, uint64_t length,
 
 int vmm_unmap(uint64_t virt)
 {
-    uint64_t *pte = vmm_walk(virt, false);
+    uint64_t *pte = vmm_walk(virt, false, 0);
 
     if (!pte || !(*pte & PTE_PRESENT)) {
         return -1;
@@ -135,7 +149,7 @@ int vmm_unmap_range(uint64_t virt, uint64_t length)
 
 int vmm_protect(uint64_t virt, uint64_t flags)
 {
-    uint64_t *pte = vmm_walk(virt, false);
+    uint64_t *pte = vmm_walk(virt, false, 0);
 
     if (!pte || !(*pte & PTE_PRESENT)) {
         return -1;

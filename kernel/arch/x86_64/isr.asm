@@ -87,6 +87,9 @@ IRQ_STUB 45, 13
 IRQ_STUB 46, 14
 IRQ_STUB 47, 15
 
+; System call gate: int 0x80 is reachable from ring 3 (DPL 3).
+ISR_NOERR 128
+
 ; Fallback for unused IDT vectors.
 global isr_default
 isr_default:

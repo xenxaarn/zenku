@@ -17,10 +17,12 @@ KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
                 kernel/arch/x86_64/irq.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
                 kernel/fs/ramdisk.c kernel/fs/vfs.c kernel/fs/devfs.c fs/ext2.c \
+                kernel/exec/user.c kernel/syscall/syscall.c \
                 drivers/pic.c drivers/pit.c drivers/ps2.c drivers/mouse.c drivers/serial.c \
                 lib/string.c lib/kio.c
 KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
                 kernel/arch/x86_64/gdt_flush.asm \
+                kernel/arch/x86_64/user.asm \
                 kernel/arch/x86_64/isr.asm
 KERNEL_LD    := linker/kernel.ld
 
@@ -32,6 +34,7 @@ BOOT_IMAGE      := $(BUILD)/boot/boot.img
 TEST_IMAGE      := $(BUILD)/test/boot.img
 KERNEL_ELF      := $(BUILD)/kernel.elf
 KERNEL_TEST_ELF := $(BUILD)/test/kernel.elf
+USER_INIT_ELF   := $(BUILD)/user/init.elf
 ROOTFS          := $(BUILD)/rootfs.ext2
 ROOTFS_TEST     := $(BUILD)/test/rootfs.ext2
 ISO             := $(BUILD)/os.iso
@@ -44,7 +47,7 @@ KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
 KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
                     $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
 
-.PHONY: all iso run debug test test-input test-serial test-fs check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
+.PHONY: all iso run debug test test-input test-serial test-fs test-user check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
 
 all: iso
 
@@ -168,8 +171,16 @@ test-faults:
 # ---------------------------------------------------------------------------
 rootfs: $(ROOTFS)
 
-$(ROOTFS): $(KERNEL_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
-	scripts/mkrootfs.sh $(KERNEL_ELF) $@
+$(BUILD)/user/obj/%.o: %.c | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(CC) $(USER_CFLAGS) -c -o $@ $<
+
+$(USER_INIT_ELF): $(BUILD)/user/obj/user/init/init.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ $<
+
+$(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
+	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 32 $(USER_INIT_ELF)
 
 $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
@@ -206,6 +217,9 @@ test-serial: $(ISO)
 
 test-fs: $(ISO)
 	QEMU=$(QEMU) scripts/run-fs-test.sh $(ISO)
+
+test-user: $(ISO)
+	QEMU=$(QEMU) scripts/run-user-test.sh $(ISO)
 
 check:
 	scripts/syntax-check.sh
@@ -266,6 +280,7 @@ help:
 	@echo "  test-input boot, type help via PS/2, check the console"
 	@echo "  test-serial type help over COM1 IRQ4, check the console"
 	@echo "  test-fs    mount ext2, then ls/cat/stat over COM1"
+	@echo "  test-user  run /init in ring 3 and check the syscalls"
 	@echo "  test-faults inject #DE/#UD/#GP/#PF and check panics"
 	@echo "  check      fast syntax check of C/asm/shell/python"
 	@echo "  check-link syntax check plus stage3 and kernel links"

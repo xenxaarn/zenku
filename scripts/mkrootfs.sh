@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the read-only ext2 root filesystem embedded in the ISO.
 #
-#   mkrootfs.sh <kernel.elf> <out.ext2> [size-mib]
+#   mkrootfs.sh <kernel.elf> <out.ext2> [size-mib] [init.elf]
 #
 # The image is populated from a staging directory, so it contains /kernel and
 # a short README. Keep the feature set small: the Zenku ext2 reader supports
@@ -11,6 +11,7 @@ set -euo pipefail
 KERNEL=${1:?usage: mkrootfs.sh <kernel.elf> <out.ext2> [size-mib]}
 OUT=${2:?usage: mkrootfs.sh <kernel.elf> <out.ext2> [size-mib]}
 SIZE_MIB=${3:-32}
+INIT=${4:-}
 MKE2FS=${MKE2FS:-mke2fs}
 
 [ -f "$KERNEL" ] || { echo "mkrootfs: missing kernel: $KERNEL" >&2; exit 1; }
@@ -26,6 +27,11 @@ cleanup() {
 trap cleanup EXIT
 
 cp "$KERNEL" "$STAGE/kernel"
+if [ -n "$INIT" ]; then
+    [ -f "$INIT" ] || { echo "mkrootfs: missing init: $INIT" >&2; exit 1; }
+    cp "$INIT" "$STAGE/init"
+    chmod 755 "$STAGE/init"
+fi
 mkdir -p "$STAGE/etc"
 cat > "$STAGE/README" <<'EOF'
 Zenku root filesystem.
