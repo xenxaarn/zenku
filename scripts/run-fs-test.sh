@@ -12,7 +12,7 @@ trap 'rm -f "$LOG"' EXIT
 
 if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
     --wait 20 --wait-line "desktop: terminal ready" \
-    --serial-send "$(printf 'ls\rcat /etc/motd\rstat /hello.txt\r')" \
+    --serial-send "$(printf 'ls\rls /dev\rstat /hello.txt\rstat /dev/null\rdevtest\rcat /etc/motd\r')" \
     > "$LOG" 2>&1; then
     echo "run-fs-test: probe failed"
     cat "$LOG"
@@ -33,5 +33,10 @@ check "etc/"
 check "Welcome to Zenku."
 check "regular file"
 check "size   37 bytes"
+check "console"
+check "character device"
+check "devtest: write /dev/null: ok"
+check "devtest: read /dev/zero: ok"
+check "devtest: ext2 write rejected: ok"
 
 echo "PASS: ext2 rootfs mounted; ls, cat, and stat work"

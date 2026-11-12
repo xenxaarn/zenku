@@ -4,6 +4,36 @@
 #include <ext2.h>
 #include <types.h>
 
+/* File types stored in st_mode. */
+#define S_IFMT   0170000
+#define S_IFREG  0100000
+#define S_IFDIR  0040000
+#define S_IFCHR  0020000
+
+#define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+#define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
+#define S_ISCHR(m) (((m) & S_IFMT) == S_IFCHR)
+
+/* open(2) flags. Only the access mode is implemented for now. */
+#define O_RDONLY  0x0000
+#define O_WRONLY  0x0001
+#define O_RDWR    0x0002
+#define O_ACCMODE 0x0003
+
+/* lseek(2) whence values. */
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
+#define VFS_MAX_FDS 32
+
+struct vfs_stat {
+    uint32_t ino;
+    uint32_t mode;
+    uint64_t size;
+    uint32_t links;
+};
+
 /* Directory visitor: return 0 to continue, non-zero to stop. */
 typedef int (*vfs_dir_cb)(const char *name, uint32_t name_len, uint32_t ino,
                           uint8_t type, void *ctx);
@@ -11,8 +41,14 @@ typedef int (*vfs_dir_cb)(const char *name, uint32_t name_len, uint32_t ino,
 int vfs_init(uint64_t initrd_phys, uint64_t initrd_size);
 bool vfs_ready(void);
 
-int vfs_resolve(const char *path, uint32_t *ino_out);
-int vfs_stat(const char *path, uint32_t *ino_out, struct ext2_inode *inode);
+int vfs_open(const char *path, int flags);
+int64_t fd_read(int fd, void *buf, size_t len);
+int64_t fd_write(int fd, const void *buf, size_t len);
+int64_t fd_lseek(int fd, int64_t offset, int whence);
+int fd_close(int fd);
+int fd_fstat(int fd, struct vfs_stat *out);
+
+int vfs_stat(const char *path, struct vfs_stat *out);
 int64_t vfs_read_file(const char *path, void *buf, uint64_t cap);
 int vfs_list(const char *path, vfs_dir_cb cb, void *ctx);
 

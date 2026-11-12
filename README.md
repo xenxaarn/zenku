@@ -13,13 +13,15 @@ Phase 4 has started with the filesystem path:
 
 - ramdisk block device over the initrd (512-byte blocks, direct map)
 - ext2 read-only mount in the kernel, sharing `fs/ext2.c` with stage3
-- VFS layer: path resolution, inode stat, whole-file read, directory walk
-- kernel commands: `ls`, `cat <path>`, `stat <path>`
+- VFS layer: path resolution, inode stat, directory walk, and a 32-slot file
+  descriptor table (`open`, `read`, `write`, `lseek`, `close`, `fstat`)
+- devfs under `/dev`: `console`, `tty0`, `ttyS0`, `null`, `zero`
+- kernel commands: `ls`, `cat <path>`, `stat <path>`, `devtest`
 - demo rootfs content: `/README`, `/etc/motd`, `/etc/hostname`, `/hello.txt`
-- `make test-fs` lists, cats, and stats files over COM1
+- `make test-fs` lists, cats, and stats files over COM1, then exercises devfs
+  and confirms ext2 rejects writes with `EROFS`
 
-Still to come in Phase 4: devfs/pipefs, ELF loader, ring 3, and the first
-syscalls.
+Still to come in Phase 4: pipefs, ELF loader, ring 3, and the first syscalls.
 
 Phase 3 completed the interactive path:
 

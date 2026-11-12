@@ -750,8 +750,10 @@ addressing is deferred polish.
 
 * VFS + path resolution + fd table + ramdisk block device + ext2 read-only.
   **Done:** ramdisk, ext2 mount shared with stage3, path lookup, inode stat,
-  whole-file read, directory iteration, and `ls`/`cat`/`stat`. Open: fd table.
+  directory iteration, `ls`/`cat`/`stat`, and a 32-slot fd table with
+  `open`/`read`/`write`/`lseek`/`close`/`fstat` returning negative errnos.
 * Devfs (`console`, `tty0`, `ttyS0`, `null`, `zero`), pipefs.
+  **Done:** devfs with a `devtest` command; pipefs is open.
 * ELF loader in kernel, user address spaces, TSS/RSP0, ring-3 entry.
 * `int 0x80` dispatch, usercopy with fixups, syscalls: `open`, `read`, `write`,
   `close`, `exit`, `lseek`, `fstat`, `getpid`, `getppid`.

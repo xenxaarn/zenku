@@ -1,4 +1,5 @@
 #include <console.h>
+#include <errno.h>
 #include <ext2.h>
 #include <fb.h>
 #include <kio.h>
@@ -608,10 +609,9 @@ static void command_cat(const char *path)
 
 static void command_stat(const char *path)
 {
-    struct ext2_inode inode;
-    uint32_t ino;
+    struct vfs_stat st;
 
-    if (vfs_stat(path, &ino, &inode) != 0) {
+    if (vfs_stat(path, &st) != 0) {
         g_fg = COLOR_ERROR;
         console_puts("stat: cannot stat ");
         console_puts(path);
@@ -621,20 +621,99 @@ static void command_stat(const char *path)
     }
 
     console_puts("inode  ");
-    put_uint(ino);
+    put_uint(st.ino);
     console_putc('\n');
     console_puts("type   ");
-    console_puts(ext2_is_dir(&inode) ? "directory" :
-                 ext2_is_file(&inode) ? "regular file" : "other");
+    console_puts(S_ISDIR(st.mode) ? "directory" :
+                 S_ISCHR(st.mode) ? "character device" :
+                 S_ISREG(st.mode) ? "regular file" : "other");
     console_putc('\n');
     console_puts("size   ");
-    put_uint(inode.size);
+    put_uint(st.size);
     console_puts(" bytes\n");
     console_puts("mode   0x");
-    put_hex(inode.mode);
+    put_hex(st.mode);
     console_puts("\nlinks  ");
-    put_uint(inode.links_count);
+    put_uint(st.links);
     console_putc('\n');
+}
+
+static void devtest_result(const char *what, bool ok)
+{
+    if (!ok) {
+        g_fg = COLOR_ERROR;
+    }
+    console_puts("devtest: ");
+    console_puts(what);
+    console_puts(ok ? ": ok\n" : ": FAILED\n");
+    g_fg = COLOR_FG;
+}
+
+static void command_devtest(void)
+{
+    static const char text[] = "hello";
+    char buf[8];
+    int fd;
+
+    /* /dev/null discards writes. */
+    fd = vfs_open("/dev/null", O_WRONLY);
+    if (fd < 0) {
+        devtest_result("open /dev/null", false);
+    } else {
+        int64_t n = fd_write(fd, text, 5);
+
+        fd_close(fd);
+        devtest_result("write /dev/null", n == 5);
+    }
+
+    /* /dev/zero returns zero-filled bytes. */
+    fd = vfs_open("/dev/zero", O_RDONLY);
+    if (fd < 0) {
+        devtest_result("open /dev/zero", false);
+    } else {
+        int64_t n = fd_read(fd, buf, sizeof(buf));
+        bool zeroed = n == (int64_t)sizeof(buf);
+
+        fd_close(fd);
+        for (unsigned i = 0; zeroed && i < sizeof(buf); i++) {
+            zeroed = buf[i] == 0;
+        }
+        devtest_result("read /dev/zero", zeroed);
+    }
+
+    /* /dev/console writes appear in this terminal. */
+    fd = vfs_open("/dev/console", O_WRONLY);
+    if (fd < 0) {
+        devtest_result("open /dev/console", false);
+    } else {
+        int64_t n = fd_write(fd, "devtest: console says hello\n", 28);
+
+        fd_close(fd);
+        devtest_result("write /dev/console", n == 28);
+    }
+
+    /* ext2 is mounted read-only, so opening for write must fail. */
+    fd = vfs_open("/hello.txt", O_WRONLY);
+    devtest_result("ext2 write rejected", fd == -EROFS);
+    if (fd >= 0) {
+        fd_close(fd);
+    }
+
+    fd = vfs_open("/etc/motd", O_RDONLY);
+    if (fd < 0) {
+        devtest_result("open /etc/motd", false);
+    } else {
+        char head[8];
+        int64_t n = fd_read(fd, head, 7);
+
+        if (n > 0) {
+            (void)fd_lseek(fd, 0, SEEK_SET);
+            n = fd_read(fd, head, 7);
+        }
+        fd_close(fd);
+        devtest_result("read + lseek /etc/motd",
+                       n == 7 && memcmp(head, "Welcome", 7) == 0);
+    }
 }
 
 static void command_run(void)
@@ -648,8 +727,8 @@ static void command_run(void)
     }
 
     if (strcmp(g_line, "help") == 0) {
-        console_puts("commands: help, fetch, colors, ls, cat, stat, mem, ticks, "
-                     "uptime, version, clear\n");
+        console_puts("commands: help, fetch, colors, ls, cat, stat, devtest, "
+                     "mem, ticks, uptime, version, clear\n");
     } else if (strcmp(g_line, "fetch") == 0) {
         command_fetch();
     } else if (strncmp(g_line, "ls", 2) == 0 &&
@@ -676,6 +755,12 @@ static void command_run(void)
             console_puts("usage: stat <path>\n");
         } else {
             command_stat(path);
+        }
+    } else if (strcmp(g_line, "devtest") == 0) {
+        if (vfs_ready()) {
+            command_devtest();
+        } else {
+            console_puts("devtest: root filesystem not mounted\n");
         }
     } else if (strcmp(g_line, "colors") == 0) {
         console_puts("\x1b[31mred \x1b[32mgreen \x1b[33myellow "
