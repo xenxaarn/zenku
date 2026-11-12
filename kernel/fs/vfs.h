@@ -29,12 +29,20 @@
 
 #define VFS_MAX_FDS 32
 #define VFS_MAX_FD_TABLES 32
+#define VFS_NAME_MAX 256
 
 struct vfs_stat {
     uint32_t ino;
     uint32_t mode;
     uint64_t size;
     uint32_t links;
+};
+
+struct vfs_dirent {
+    uint32_t ino;
+    uint8_t type;
+    uint8_t name_len;
+    char name[VFS_NAME_MAX];
 };
 
 /* Directory visitor: return 0 to continue, non-zero to stop. */
@@ -50,6 +58,7 @@ int64_t fd_write(int fd, const void *buf, size_t len);
 int64_t fd_lseek(int fd, int64_t offset, int whence);
 int fd_close(int fd);
 int fd_fstat(int fd, struct vfs_stat *out);
+int vfs_dup2(int oldfd, int newfd);
 
 /* True when fd refers to the interactive terminal device. */
 bool fd_is_console(int fd);
@@ -67,5 +76,9 @@ void vfs_fdtable_select(int id);
 int vfs_stat(const char *path, struct vfs_stat *out);
 int64_t vfs_read_file(const char *path, void *buf, uint64_t cap);
 int vfs_list(const char *path, vfs_dir_cb cb, void *ctx);
+
+/* Return entry `index` from a directory, skipping nothing. Returns -ENOENT
+ * past the last entry and -ENOTDIR for non-directories. */
+int vfs_readdir(const char *path, uint32_t index, struct vfs_dirent *out);
 
 #endif /* ZENKU_VFS_H */

@@ -1,7 +1,8 @@
 #include <zenku.h>
 
-#define LINE_MAX 128
-#define ARG_MAX  16
+#define LINE_MAX    128
+#define ARG_MAX     16
+#define PIPE_STAGES 4
 
 static size_t text_len(const char *s)
 {
@@ -95,87 +96,220 @@ static int split(char *line, char *argv[], int max)
     return argc;
 }
 
-static void run_external(char *argv[])
+/* Split a line into pipe-separated stage strings in place. */
+static int split_pipeline(char *line, char *stages[], int max)
 {
-    char path[64];
-    size_t len = text_len(argv[0]);
-    int status = -1;
-    long pid;
+    int count = 0;
+    char *p = line;
 
-    if (argv[0][0] == '/') {
-        if (len >= sizeof(path)) {
-            print("sh: path too long\n");
-            return;
+    if (!*p) {
+        return 0;
+    }
+    stages[count++] = p;
+    while (*p) {
+        if (*p == '|') {
+            *p = '\0';
+            p++;
+            while (*p == ' ' || *p == '\t') {
+                p++;
+            }
+            if (!*p || count >= max) {
+                return -1;
+            }
+            stages[count++] = p;
+            continue;
+        }
+        p++;
+    }
+    return count;
+}
+
+static int build_path(const char *name, char *path, size_t cap)
+{
+    size_t len = text_len(name);
+
+    if (name[0] == '/') {
+        if (len >= cap) {
+            return -1;
         }
         for (size_t i = 0; i <= len; i++) {
-            path[i] = argv[0][i];
+            path[i] = name[i];
         }
-    } else {
-        static const char prefix[] = "/bin/";
+        return 0;
+    }
 
-        if (len + sizeof(prefix) >= sizeof(path)) {
-            print("sh: name too long\n");
-            return;
+    {
+        static const char prefix[] = "/bin/";
+        size_t plen = sizeof(prefix) - 1;
+
+        if (plen + len >= cap) {
+            return -1;
         }
-        for (size_t i = 0; i < sizeof(prefix) - 1; i++) {
+        for (size_t i = 0; i < plen; i++) {
             path[i] = prefix[i];
         }
         for (size_t i = 0; i <= len; i++) {
-            path[sizeof(prefix) - 1 + i] = argv[0][i];
+            path[plen + i] = name[i];
         }
     }
+    return 0;
+}
 
-    pid = sys_fork();
-    if (pid == 0) {
-        sys_execve(path, argv, 0);
-        print("sh: cannot execute ");
-        print(path);
-        print("\n");
+static void exec_command(char *argv[])
+{
+    char path[64];
+
+    if (build_path(argv[0], path, sizeof(path)) < 0) {
+        print("sh: name too long\n");
         sys_exit(127);
+    }
+    sys_execve(path, argv, 0);
+    print("sh: cannot execute ");
+    print(path);
+    print("\n");
+    sys_exit(127);
+}
+
+static void wait_for(long pid)
+{
+    int status = -1;
+
+    if (sys_wait4(pid, &status, 0) != pid) {
+        print("sh: wait failed\n");
+    }
+}
+
+static void run_external(char *argv[])
+{
+    long pid = sys_fork();
+
+    if (pid == 0) {
+        exec_command(argv);
     }
     if (pid < 0) {
         print("sh: fork failed\n");
         return;
     }
-    if (sys_wait4(pid, &status, 0) != pid) {
-        print("sh: wait failed\n");
+    wait_for(pid);
+}
+
+static void run_pipeline(char *stage_argv[][ARG_MAX], int stage_count)
+{
+    int pipes[PIPE_STAGES - 1][2];
+    long pids[PIPE_STAGES];
+    int created = 0;
+
+    if (stage_count == 1) {
+        run_external(stage_argv[0]);
+        return;
+    }
+
+    for (int i = 0; i < stage_count - 1; i++) {
+        if (sys_pipe(pipes[i]) < 0) {
+            print("sh: cannot create pipe\n");
+            stage_count = i + 1;
+            break;
+        }
+        created++;
+    }
+    if (created == 0) {
+        return;
+    }
+    if (created < stage_count - 1) {
+        stage_count = created + 1;
+    }
+
+    for (int i = 0; i < stage_count; i++) {
+        long pid = sys_fork();
+
+        if (pid == 0) {
+            if (i > 0) {
+                sys_dup2(pipes[i - 1][0], 0);
+            }
+            if (i < stage_count - 1) {
+                sys_dup2(pipes[i][1], 1);
+            }
+            for (int j = 0; j < created; j++) {
+                sys_close(pipes[j][0]);
+                sys_close(pipes[j][1]);
+            }
+            exec_command(stage_argv[i]);
+        }
+        pids[i] = pid;
+        if (pid < 0) {
+            print("sh: fork failed\n");
+            stage_count = i;
+            break;
+        }
+    }
+
+    for (int i = 0; i < created; i++) {
+        sys_close(pipes[i][0]);
+        sys_close(pipes[i][1]);
+    }
+    for (int i = 0; i < stage_count; i++) {
+        if (pids[i] > 0) {
+            wait_for(pids[i]);
+        }
     }
 }
 
 int main(long argc, char **argv)
 {
     char line[LINE_MAX];
-    char *args[ARG_MAX];
+    char *stages[PIPE_STAGES];
+    char *args[PIPE_STAGES][ARG_MAX];
+    int counts[PIPE_STAGES];
 
     (void)argc;
     (void)argv;
 
     for (;;) {
-        int n;
-        int count;
+        int stage_count;
+        int first_argc = 0;
 
         print("sh> ");
-        n = read_line(line, sizeof(line));
-        if (n <= 0) {
+        if (read_line(line, sizeof(line)) <= 0) {
             print("\n");
             break;
         }
 
-        count = split(line, args, ARG_MAX);
-        if (count == 0) {
+        stage_count = split_pipeline(line, stages, PIPE_STAGES);
+        if (stage_count < 0) {
+            print("sh: pipeline too long\n");
+            continue;
+        }
+        for (int i = 0; i < stage_count; i++) {
+            counts[i] = split(stages[i], args[i], ARG_MAX);
+        }
+        for (int i = 0; i < stage_count; i++) {
+            if (counts[i] == 0) {
+                print("sh: empty pipeline stage\n");
+                stage_count = 0;
+                break;
+            }
+        }
+        if (stage_count == 0) {
             continue;
         }
 
-        if (same(args[0], "exit")) {
-            break;
-        }
-        if (same(args[0], "help")) {
-            print("shell: builtins: exit, help; "
-                  "external commands live in /bin\n");
-            continue;
+        first_argc = counts[0];
+        if (stage_count == 1 && first_argc == 1) {
+            if (same(args[0][0], "exit")) {
+                break;
+            }
+            if (same(args[0][0], "help")) {
+                print("shell: builtins: exit, help, pwd; "
+                      "external commands live in /bin\n");
+                continue;
+            }
+            if (same(args[0][0], "pwd")) {
+                print("/\n");
+                continue;
+            }
         }
 
-        run_external(args);
+        run_pipeline(args, stage_count);
     }
 
     return 0;

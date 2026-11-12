@@ -667,3 +667,30 @@ void process_print(void)
         console_puts("  no processes\n");
     }
 }
+
+int process_snapshot(struct process_info *out, int max)
+{
+    int count = 0;
+
+    if (!out || max <= 0) {
+        return 0;
+    }
+
+    for (int i = 0; i < PROCESS_MAX && count < max; i++) {
+        struct process *p = &g_procs[i];
+        int j;
+
+        if (p->state == PROC_FREE) {
+            continue;
+        }
+        out[count].pid = p->pid;
+        out[count].ppid = p->ppid;
+        out[count].state = (int)p->state;
+        for (j = 0; j < PROCESS_NAME_MAX - 1 && p->name[j]; j++) {
+            out[count].name[j] = p->name[j];
+        }
+        out[count].name[j] = '\0';
+        count++;
+    }
+    return count;
+}

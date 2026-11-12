@@ -30,7 +30,15 @@ static void copy_file(const char *path)
         print("\n");
         return;
     }
-    while ((n = sys_read((int)fd, buf, sizeof(buf))) > 0) {
+    for (;;) {
+        n = sys_read((int)fd, buf, sizeof(buf));
+        if (n == -11) { /* EAGAIN: a pipe is temporarily empty */
+            sys_yield();
+            continue;
+        }
+        if (n <= 0) {
+            break;
+        }
         sys_write(1, buf, (size_t)n);
     }
     sys_close((int)fd);
@@ -42,7 +50,15 @@ int main(long argc, char **argv)
         char buf[BUF_SIZE];
         long n;
 
-        while ((n = sys_read(0, buf, sizeof(buf))) > 0) {
+        for (;;) {
+            n = sys_read(0, buf, sizeof(buf));
+            if (n == -11) {
+                sys_yield();
+                continue;
+            }
+            if (n <= 0) {
+                break;
+            }
             sys_write(1, buf, (size_t)n);
         }
         return 0;

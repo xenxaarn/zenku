@@ -370,6 +370,32 @@ int fd_close(int fd)
     return 0;
 }
 
+int vfs_dup2(int oldfd, int newfd)
+{
+    struct fd_slot *old = fd_get(oldfd);
+    struct fd_slot *slot;
+
+    if (!old) {
+        return -EBADF;
+    }
+    if (newfd < 0 || newfd >= VFS_MAX_FDS) {
+        return -EBADF;
+    }
+    if (oldfd == newfd) {
+        return newfd;
+    }
+
+    slot = &g_fds[newfd];
+    if (slot->kind == FD_PIPE) {
+        pipe_drop_end(slot->pipe, slot->pipe_write_end);
+    }
+    if (old->kind == FD_PIPE) {
+        pipe_add_end(old->pipe, old->pipe_write_end);
+    }
+    *slot = *old;
+    return newfd;
+}
+
 static struct fd_slot *table_slots(int id)
 {
     if (id < 0 || id >= VFS_MAX_FD_TABLES || !g_fd_table_used[id]) {
@@ -582,4 +608,56 @@ int vfs_list(const char *path, vfs_dir_cb cb, void *ctx)
 
     ino = st.ino;
     return ext2_iterate(&g_fs, ino, (ext2_dir_cb)cb, ctx);
+}
+
+struct readdir_ctx {
+    uint32_t index;
+    uint32_t current;
+    struct vfs_dirent *out;
+};
+
+static int readdir_cb(const char *name, uint32_t name_len, uint32_t ino,
+                      uint8_t type, void *opaque)
+{
+    struct readdir_ctx *ctx = opaque;
+    uint32_t n;
+
+    if (ctx->current++ != ctx->index) {
+        return 0;
+    }
+
+    memset(ctx->out, 0, sizeof(*ctx->out));
+    ctx->out->ino = ino;
+    ctx->out->type = type;
+    n = name_len;
+    if (n >= VFS_NAME_MAX) {
+        n = VFS_NAME_MAX - 1;
+    }
+    if (name && n) {
+        memcpy(ctx->out->name, name, n);
+    }
+    ctx->out->name_len = (uint8_t)n;
+    return 1;
+}
+
+int vfs_readdir(const char *path, uint32_t index, struct vfs_dirent *out)
+{
+    struct readdir_ctx ctx;
+    int rc;
+
+    if (!out) {
+        return -EFAULT;
+    }
+
+    ctx.index = index;
+    ctx.current = 0;
+    ctx.out = out;
+    rc = vfs_list(path, readdir_cb, &ctx);
+    if (rc == 1) {
+        return 0;
+    }
+    if (rc < 0) {
+        return rc;
+    }
+    return -ENOENT;
 }

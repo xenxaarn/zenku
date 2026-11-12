@@ -788,11 +788,13 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
 * [x] Shared `crt0`, user ABI header; `init`, `echo`.
 * [ ] Tiny libc + `sh`, `ls`, `cat`, `pwd`, `ps`, `kill`, `sleep`, `uname`,
   `clear`, `wc`, `head`.
-  **Partial:** `sh`, `cat`, and `uname` exist; the shell has `exit`/`help`
-  builtins. The remaining coreutils and a shared libc are still open.
+  **Partial:** `sh`, `ls`, `cat`, `wc`, `ps`, and `uname` exist; the shell has
+  `exit`/`help`/`pwd` builtins. `kill`, `sleep`, `clear`, `head`, and a shared
+  libc are still open.
 * [ ] Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
-  **Partial:** external exec through `/bin`, line editing, and blocking console
-  reads work; pipelines and redirection are not implemented yet.
+  **Partial:** external exec through `/bin`, line editing, blocking console
+  reads, and up to four-stage pipelines (`pipe` + `dup2`) work; redirection is
+  not implemented yet.
 * [x] `make test-proc`: fork/exec/wait, fd inheritance, timer preemption.
 * [x] `make test-sh`: shell builtins, external commands, and clean exit.
 * [ ] Stress tests: 100 sequential forks, COW write separation, fork bomb

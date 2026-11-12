@@ -27,18 +27,43 @@ typedef long off_t;
 #define SYS_lseek   8
 #define SYS_pipe    22
 #define SYS_yield   24
+#define SYS_dup2    33
 #define SYS_getpid  39
 #define SYS_fork    57
 #define SYS_execve  59
 #define SYS_exit    60
 #define SYS_wait4   61
+#define SYS_readdir 78
+#define SYS_getprocs 79
 #define SYS_getppid 110
+
+#define ZP_FREE   0
+#define ZP_READY  1
+#define ZP_RUN    2
+#define ZP_BLOCK  3
+#define ZP_ZOMBIE 4
+
+#define ZENKU_NAME_MAX 256
 
 struct zenku_stat {
     unsigned int ino;
     unsigned int mode;
     unsigned long size;
     unsigned int links;
+};
+
+struct zenku_dirent {
+    unsigned int ino;
+    unsigned char type;
+    unsigned char name_len;
+    char name[ZENKU_NAME_MAX];
+};
+
+struct zenku_procinfo {
+    int pid;
+    int ppid;
+    int state;
+    char name[16];
 };
 
 #define ZS_IFMT  0170000
@@ -101,6 +126,22 @@ static inline long sys_fstat(int fd, struct zenku_stat *st)
 static inline long sys_pipe(int fds[2])
 {
     return syscall3(SYS_pipe, (long)fds, 0, 0);
+}
+
+static inline long sys_dup2(int oldfd, int newfd)
+{
+    return syscall3(SYS_dup2, oldfd, newfd, 0);
+}
+
+static inline long sys_readdir(const char *path, unsigned int index,
+                               struct zenku_dirent *out)
+{
+    return syscall3(SYS_readdir, (long)path, index, (long)out);
+}
+
+static inline long sys_getprocs(struct zenku_procinfo *out, int max)
+{
+    return syscall3(SYS_getprocs, (long)out, max, 0);
 }
 
 static inline long sys_yield(void)

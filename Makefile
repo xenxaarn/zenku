@@ -39,6 +39,9 @@ USER_ECHO_ELF   := $(BUILD)/user/echo.elf
 USER_SH_ELF     := $(BUILD)/user/sh.elf
 USER_CAT_ELF    := $(BUILD)/user/cat.elf
 USER_UNAME_ELF  := $(BUILD)/user/uname.elf
+USER_LS_ELF     := $(BUILD)/user/ls.elf
+USER_WC_ELF     := $(BUILD)/user/wc.elf
+USER_PS_ELF     := $(BUILD)/user/ps.elf
 USER_BIN_DIR    := $(BUILD)/user/bin
 ROOTFS          := $(BUILD)/rootfs.ext2
 ROOTFS_TEST     := $(BUILD)/test/rootfs.ext2
@@ -209,13 +212,32 @@ $(USER_UNAME_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutil
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
 		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/uname.o
 
+$(USER_LS_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ls.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ls.o
+
+$(USER_WC_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/wc.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/wc.o
+
+$(USER_PS_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ps.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ps.o
+
 $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
-           $(USER_CAT_ELF) $(USER_UNAME_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
+           $(USER_CAT_ELF) $(USER_UNAME_ELF) $(USER_LS_ELF) $(USER_WC_ELF) \
+           $(USER_PS_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
 	@mkdir -p $(USER_BIN_DIR)
 	cp $(USER_ECHO_ELF) $(USER_BIN_DIR)/echo
 	cp $(USER_SH_ELF) $(USER_BIN_DIR)/sh
 	cp $(USER_CAT_ELF) $(USER_BIN_DIR)/cat
 	cp $(USER_UNAME_ELF) $(USER_BIN_DIR)/uname
+	cp $(USER_LS_ELF) $(USER_BIN_DIR)/ls
+	cp $(USER_WC_ELF) $(USER_BIN_DIR)/wc
+	cp $(USER_PS_ELF) $(USER_BIN_DIR)/ps
 	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 32 $(USER_INIT_ELF) $(USER_BIN_DIR)
 
 $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs

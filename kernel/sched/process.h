@@ -18,6 +18,13 @@ enum process_state {
     PROC_ZOMBIE,
 };
 
+struct process_info {
+    int pid;
+    int ppid;
+    int state;
+    char name[PROCESS_NAME_MAX];
+};
+
 struct process {
     int pid;
     int ppid;
@@ -58,5 +65,8 @@ void process_wake_io(void);
 int process_getpid(void);
 int process_getppid(void);
 void process_print(void);
+
+/* Copy live process records into `out`, returning the number written. */
+int process_snapshot(struct process_info *out, int max);
 
 #endif /* ZENKU_PROCESS_H */

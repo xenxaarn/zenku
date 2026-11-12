@@ -103,6 +103,54 @@ static int64_t sys_fstat(int fd, uint64_t stat_ptr)
     return 0;
 }
 
+static int64_t sys_dup2(int oldfd, int newfd)
+{
+    return vfs_dup2(oldfd, newfd);
+}
+
+static int64_t sys_readdir(uint64_t path_ptr, uint32_t index, uint64_t out_ptr)
+{
+    struct vfs_dirent ent;
+    char path[MAX_USER_PATH];
+    int rc;
+
+    rc = copy_user_path(path_ptr, path, sizeof(path));
+    if (rc < 0) {
+        return rc;
+    }
+    if (!user_range_ok(out_ptr, sizeof(ent))) {
+        return -EFAULT;
+    }
+    rc = vfs_readdir(path, index, &ent);
+    if (rc < 0) {
+        return rc;
+    }
+    memcpy((void *)(uintptr_t)out_ptr, &ent, sizeof(ent));
+    return 0;
+}
+
+static int64_t sys_getprocs(uint64_t out_ptr, int max)
+{
+    struct process_info infos[PROCESS_MAX];
+    int count;
+
+    if (max < 0) {
+        return -EINVAL;
+    }
+    if (max > PROCESS_MAX) {
+        max = PROCESS_MAX;
+    }
+    if (max && !user_range_ok(out_ptr, (uint64_t)max * sizeof(infos[0]))) {
+        return -EFAULT;
+    }
+    count = process_snapshot(infos, max);
+    if (count > 0) {
+        memcpy((void *)(uintptr_t)out_ptr, infos,
+               (size_t)count * sizeof(infos[0]));
+    }
+    return count;
+}
+
 static int64_t sys_pipe(uint64_t fds_ptr)
 {
     int fds[2];
@@ -206,6 +254,15 @@ void syscall_dispatch(struct regs *r)
         break;
     case SYS_pipe:
         ret = sys_pipe(r->rdi);
+        break;
+    case SYS_dup2:
+        ret = sys_dup2((int)r->rdi, (int)r->rsi);
+        break;
+    case SYS_readdir:
+        ret = sys_readdir(r->rdi, (uint32_t)r->rsi, r->rdx);
+        break;
+    case SYS_getprocs:
+        ret = sys_getprocs(r->rdi, (int)r->rsi);
         break;
     case SYS_yield:
         process_yield(r);

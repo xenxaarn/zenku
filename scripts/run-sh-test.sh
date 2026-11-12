@@ -12,7 +12,7 @@ trap 'rm -f "$LOG"' EXIT
 
 if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
     --wait 40 --wait-line "user: /init returned to the kernel" \
-    --serial-send "$(printf 'sh\rhelp\recho shell works\runame\rcat /hello.txt\rexit\r')" \
+    --serial-send "$(printf 'sh\rhelp\rpwd\rls /\recho shell works\runame\rcat /hello.txt\recho hi | wc\rps\rexit\r')" \
     > "$LOG" 2>&1; then
     echo "run-sh-test: probe failed"
     cat "$LOG"
@@ -28,10 +28,15 @@ check() {
 }
 
 check "sh> "
-check "shell: builtins: exit, help"
+check "shell: builtins: exit, help, pwd"
+check "sh> /"
+check "hello.txt"
 check "shell works"
 check "Zenku Thunder x86_64"
 check "hello from the Zenku root filesystem"
+check "1 1 3"
+check "PID PPID STATE NAME"
+check "run   sh"
 check "user: /bin/sh returned to the kernel"
 
-echo "PASS: /bin/sh ran builtins, external commands, and exited"
+echo "PASS: /bin/sh ran builtins, external commands, pipelines, and exited"

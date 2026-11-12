@@ -28,17 +28,20 @@ Phase 5 has the process core and an interactive userland shell working:
 - `/init` demonstrates fork + exec + wait, pipe inheritance across fork, exit
   statuses, copy-on-write separation, a 20-fork stress loop, and timer
   preemption
-- `/bin/sh`: prompt, line input, `exit`/`help` builtins, and external commands
-  launched from `/bin` with fork/exec/wait
-- `/bin/cat` and `/bin/uname` coreutils; kernel command `sh` starts the shell
+- `/bin/sh`: prompt, line input, `exit`/`help`/`pwd` builtins, external
+  commands launched from `/bin` with fork/exec/wait, and up to four-stage
+  pipelines wired with `pipe` + `dup2`
+- `/bin/ls`, `/bin/cat`, `/bin/wc`, `/bin/ps`, and `/bin/uname` coreutils;
+  kernel command `sh` starts the shell
+- `readdir` exposes ext2 and devfs directory entries by index; `dup2` copies
+  descriptors while maintaining pipe end reference counts
 - terminal input ring in devfs: console reads block on `EAGAIN` while pipes
   stay non-blocking, and the scheduler idle loop keeps PS/2 and COM1 input
   flowing whenever every process is waiting
 - `make test-proc` and `make test-sh` cover processes and the interactive path
 
-Still on the Phase 5 list: `brk`/`mmap`, a richer libc, more coreutils, shell
-pipelines and redirection, `kill`/sleep queues, and the fork-bomb/stress
-tests.
+Still on the Phase 5 list: `brk`/`mmap`, a richer libc, more coreutils,
+shell redirection, `kill`/sleep queues, and the fork-bomb/stress tests.
 
 ## Phase 4: filesystem and user mode
 
