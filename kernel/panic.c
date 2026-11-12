@@ -18,4 +18,5 @@ void kpanic(const char *fmt, ...)
     /* Test builds use isa-debug-exit; a panic is exit status 65. */
     outb(0x501, 0x20);
     cpu_halt();
+    __builtin_unreachable();
 }

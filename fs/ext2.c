@@ -383,8 +383,7 @@ int ext2_iterate(struct ext2_fs *fs, uint32_t dir_ino, ext2_dir_cb cb,
             if (rec_len < 8 || pos + rec_len > fs->block_size) {
                 break;
             }
-            if (ino != 0 && name_len > 0 && name_len < 256 &&
-                8 + name_len <= rec_len) {
+            if (ino != 0 && name_len > 0 && 8 + name_len <= rec_len) {
                 char name[256];
                 int rc;
 

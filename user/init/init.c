@@ -311,6 +311,7 @@ int main(long argc, char **argv)
             for (unsigned long i = 0; i < 50000000UL; i++) {
                 x += i;
             }
+            (void)x;
             print("preempt: child A finished\n");
             sys_exit(0);
         }

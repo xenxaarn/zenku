@@ -19,7 +19,7 @@ SECTIONS
         *(.rodata*)
     }
 
-    . = ALIGN(16);
+    . = ALIGN(4096);
     .data : AT(ADDR(.data) - KERNEL_VMA) {
         *(.data*)
     }

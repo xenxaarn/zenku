@@ -15,7 +15,7 @@ SECTIONS
         *(.rodata*)
     }
 
-    .data : ALIGN(16) {
+    .data : ALIGN(4096) {
         *(.data*)
     }
 
