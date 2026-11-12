@@ -39,7 +39,7 @@ check "cow: child private write ok"
 check "cow: parent value preserved"
 check "cow: child pipe fds ok"
 check "cow: parent fd array preserved"
-check "cow: 20 fork stress ok"
+check "cow: 100 fork stress ok"
 check "preempt: child B ran"
 check "preempt: child A finished"
 check "preempt: child A reaped"
@@ -51,6 +51,7 @@ check "kill"
 check "sleep"
 check "head"
 check "clear"
+check "pwd"
 
 # Timer preemption must let child B run while child A is still spinning.
 b_line=$(grep -n "preempt: child B ran" "$LOG" | head -1 | cut -d: -f1)

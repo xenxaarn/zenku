@@ -158,8 +158,14 @@ def main() -> int:
             text = args.serial_send
             if not text.endswith(("\r", "\n")):
                 text += "\r"
-            ser.sendall(text.encode())
-            pump(time.time() + 1.5)
+            # Send one line at a time. Writing a long script in one burst can
+            # overflow the small COM1 receive ring before the shell drains it.
+            lines = [line for line in text.replace("\n", "\r").split("\r")
+                     if line]
+            for line in lines:
+                ser.sendall((line + "\r").encode())
+                pump(time.time() + 0.06)
+            pump(time.time() + 1.5 + 0.05 * len(lines))
         n = args.len
         cmds = []
         if args.keys:

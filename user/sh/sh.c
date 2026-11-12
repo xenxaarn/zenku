@@ -333,18 +333,40 @@ int main(long argc, char **argv)
         }
 
         first_argc = counts[0];
-        if (stage_count == 1 && first_argc == 1 && !redir_in[0] &&
-            !redir_out[0]) {
-            if (same(args[0][0], "exit")) {
+        if (stage_count == 1 && !redir_in[0] && !redir_out[0]) {
+            char *name = args[0][0];
+
+            if (same(name, "exit") && first_argc == 1) {
                 break;
             }
-            if (same(args[0][0], "help")) {
-                print("shell: builtins: exit, help, pwd; "
+            if (same(name, "help") && first_argc == 1) {
+                print("shell: builtins: cd, clear, exit, help, pwd; "
                       "external commands live in /bin\n");
                 continue;
             }
-            if (same(args[0][0], "pwd")) {
-                print("/\n");
+            if (same(name, "clear") && first_argc == 1) {
+                sys_clear();
+                continue;
+            }
+            if (same(name, "pwd") && first_argc == 1) {
+                char cwd[256];
+
+                if (sys_getcwd(cwd, sizeof(cwd)) > 0) {
+                    print(cwd);
+                    print("\n");
+                } else {
+                    print("sh: pwd failed\n");
+                }
+                continue;
+            }
+            if (same(name, "cd") && first_argc <= 2) {
+                const char *path = first_argc == 2 ? args[0][1] : "/";
+
+                if (sys_chdir(path) < 0) {
+                    print("sh: cd: cannot change directory to ");
+                    print(path);
+                    print("\n");
+                }
                 continue;
             }
         }

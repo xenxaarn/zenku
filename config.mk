@@ -59,6 +59,7 @@ STAGE3_CFLAGS := \
 USER_CFLAGS := \
   -std=gnu11 -O2 -g -Wall -Wextra \
   -ffreestanding -fno-pie -fno-stack-protector -fno-builtin \
+  -mno-sse -mno-mmx -mno-80387 -mno-avx \
   -Ilibc/include
 
 # QEMU

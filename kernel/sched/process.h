@@ -38,6 +38,13 @@ struct process {
     uint8_t *kstack;
     uint64_t kstack_top;
     int fdt;
+    uint64_t heap_base;
+    uint64_t heap_brk;
+    uint64_t heap_limit;
+    uint64_t mmap_next;
+    uint64_t mmap_end;
+    uint64_t stack_bottom;
+    uint64_t stack_limit;
     struct regs regs;
     char name[PROCESS_NAME_MAX];
 };
@@ -69,6 +76,19 @@ void process_sleep(struct regs *frame, uint64_t ms);
 /* Send SIGKILL (9) or SIGTERM (15). Returns 0, a negative errno, or 1 when
  * the current process terminated itself and switched away. */
 int process_kill(struct regs *frame, int pid, int sig);
+
+/* Heap break. new_brk == 0 queries the current break; changes outside the
+ * reserved heap region are rejected and leave the break unchanged. */
+int64_t process_brk(uint64_t new_brk);
+
+/* Anonymous private mmap/munmap. Mappings are demand-zero only for the heap;
+ * anonymous mmap pages are allocated eagerly. */
+uint64_t process_mmap(uint64_t addr, uint64_t length, int prot, int flags);
+int process_munmap(uint64_t addr, uint64_t length);
+
+/* Resolve a not-present user fault with demand-zero heap pages or guarded
+ * stack growth. Returns true when the faulting instruction may be retried. */
+bool process_page_fault(uint64_t virt, uint64_t error);
 
 int process_getpid(void);
 int process_getppid(void);

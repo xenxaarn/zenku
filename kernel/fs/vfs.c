@@ -32,6 +32,7 @@ struct fd_slot {
 
 struct fd_table {
     struct fd_slot slots[VFS_MAX_FDS];
+    char cwd[VFS_NAME_MAX];
 };
 
 static struct ramdisk g_ramdisk;
@@ -39,6 +40,7 @@ static struct ext2_fs g_fs;
 static struct fd_table g_fd_tables[VFS_MAX_FD_TABLES];
 static bool g_fd_table_used[VFS_MAX_FD_TABLES];
 static struct fd_slot *g_fds;
+static char *g_cwd;
 static int g_active_table;
 static bool g_ready;
 
@@ -114,6 +116,9 @@ int vfs_init(uint64_t initrd_phys, uint64_t initrd_size)
     g_fd_table_used[0] = true;
     g_active_table = 0;
     g_fds = g_fd_tables[0].slots;
+    g_fd_tables[0].cwd[0] = '/';
+    g_fd_tables[0].cwd[1] = '\0';
+    g_cwd = g_fd_tables[0].cwd;
     g_ready = true;
     kprintf("vfs: ext2 mounted, %u KiB blocks, %u inodes, %u groups\n",
             g_fs.block_size / 1024, g_fs.inodes_count, g_fs.group_count);
@@ -126,14 +131,92 @@ bool vfs_ready(void)
     return g_ready;
 }
 
+/* Normalize an absolute or relative path into an absolute path in `out`.
+ * Components are collapsed, "." is dropped, and ".." never escapes root. */
+int vfs_resolve(const char *path, char *out, size_t cap)
+{
+    const char *p;
+    size_t used = 0;
+
+    if (!path || !*path || !out || cap < 2) {
+        return -ENOENT;
+    }
+
+    if (path[0] != '/') {
+        const char *base = g_cwd ? g_cwd : "/";
+
+        while (*base && used + 1 < cap) {
+            out[used++] = *base++;
+        }
+        if (used == 0) {
+            out[used++] = '/';
+        }
+    }
+
+    p = path;
+    while (*p) {
+        const char *start;
+        size_t len;
+
+        while (*p == '/') {
+            p++;
+        }
+        if (!*p) {
+            break;
+        }
+        start = p;
+        while (*p && *p != '/') {
+            p++;
+        }
+        len = (size_t)(p - start);
+
+        if (len == 1 && start[0] == '.') {
+            continue;
+        }
+        if (len == 2 && start[0] == '.' && start[1] == '.') {
+            while (used > 1 && out[used - 1] != '/') {
+                used--;
+            }
+            if (used > 1) {
+                used--;
+            }
+            continue;
+        }
+        if (used == 0 || out[used - 1] != '/') {
+            if (used + 1 >= cap) {
+                return -ENAMETOOLONG;
+            }
+            out[used++] = '/';
+        }
+        if (used + len >= cap) {
+            return -ENAMETOOLONG;
+        }
+        memcpy(out + used, start, len);
+        used += len;
+    }
+
+    if (used == 0) {
+        out[used++] = '/';
+    }
+    out[used] = '\0';
+    return 0;
+}
+
 int vfs_stat(const char *path, struct vfs_stat *out)
 {
+    char resolved[VFS_NAME_MAX];
+    int rc;
     const char *name;
     const struct devfs_ops *ops;
 
     if (!g_ready || !path || !out) {
         return -ENOENT;
     }
+    rc = vfs_resolve(path, resolved, sizeof(resolved));
+    if (rc < 0) {
+        return rc;
+    }
+    path = resolved;
 
     if (is_dev_root(path)) {
         out->ino = DEVFS_DIR_INO;
@@ -182,6 +265,7 @@ static struct fd_slot *fd_alloc(int flags, const struct vfs_stat *st,
 
 int vfs_open(const char *path, int flags)
 {
+    char resolved[VFS_NAME_MAX];
     struct vfs_stat st;
     const struct devfs_ops *dev = NULL;
     const char *name;
@@ -195,6 +279,11 @@ int vfs_open(const char *path, int flags)
     if (access != O_RDONLY && access != O_WRONLY && access != O_RDWR) {
         return -EINVAL;
     }
+    rc = vfs_resolve(path, resolved, sizeof(resolved));
+    if (rc < 0) {
+        return rc;
+    }
+    path = resolved;
 
     rc = vfs_stat(path, &st);
     if (rc < 0) {
@@ -411,6 +500,8 @@ int vfs_fdtable_create(void)
             continue;
         }
         memset(&g_fd_tables[id], 0, sizeof(g_fd_tables[id]));
+        g_fd_tables[id].cwd[0] = '/';
+        g_fd_tables[id].cwd[1] = '\0';
         g_fd_table_used[id] = true;
         return id;
     }
@@ -432,6 +523,8 @@ int vfs_fdtable_clone(int id)
     }
     dst = g_fd_tables[dst_id].slots;
     memcpy(dst, src, sizeof(g_fd_tables[dst_id].slots));
+    memcpy(g_fd_tables[dst_id].cwd, g_fd_tables[id].cwd,
+           sizeof(g_fd_tables[dst_id].cwd));
 
     for (int i = 0; i < VFS_MAX_FDS; i++) {
         if (dst[i].kind == FD_PIPE) {
@@ -470,6 +563,11 @@ void vfs_fdtable_select(int id)
     }
     g_active_table = id;
     g_fds = slots;
+    g_cwd = g_fd_tables[id].cwd;
+    if (!g_cwd[0]) {
+        g_cwd[0] = '/';
+        g_cwd[1] = '\0';
+    }
 }
 
 bool fd_is_console(int fd)
@@ -584,6 +682,7 @@ int64_t vfs_read_file(const char *path, void *buf, uint64_t cap)
 
 int vfs_list(const char *path, vfs_dir_cb cb, void *ctx)
 {
+    char resolved[VFS_NAME_MAX];
     struct vfs_stat st;
     uint32_t ino;
     int rc;
@@ -591,6 +690,10 @@ int vfs_list(const char *path, vfs_dir_cb cb, void *ctx)
     if (!cb) {
         return -EINVAL;
     }
+    if (vfs_resolve(path, resolved, sizeof(resolved)) < 0) {
+        return -ENOENT;
+    }
+    path = resolved;
     if (is_dev_root(path)) {
         return devfs_list((devfs_dir_cb)cb, ctx);
     }
@@ -660,4 +763,43 @@ int vfs_readdir(const char *path, uint32_t index, struct vfs_dirent *out)
         return rc;
     }
     return -ENOENT;
+}
+
+int vfs_chdir(const char *path)
+{
+    char resolved[VFS_NAME_MAX];
+    struct vfs_stat st;
+    int rc;
+
+    rc = vfs_resolve(path, resolved, sizeof(resolved));
+    if (rc < 0) {
+        return rc;
+    }
+    rc = vfs_stat(resolved, &st);
+    if (rc < 0) {
+        return rc;
+    }
+    if (!S_ISDIR(st.mode)) {
+        return -ENOTDIR;
+    }
+    if (!g_cwd) {
+        return -ENODEV;
+    }
+    memcpy(g_cwd, resolved, strlen(resolved) + 1);
+    return 0;
+}
+
+int vfs_getcwd(char *out, size_t cap)
+{
+    size_t len;
+
+    if (!out || cap < 2 || !g_cwd) {
+        return -EINVAL;
+    }
+    len = strlen(g_cwd) + 1;
+    if (len > cap) {
+        return -ERANGE;
+    }
+    memcpy(out, g_cwd, len);
+    return (int)len;
 }

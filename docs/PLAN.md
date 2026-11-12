@@ -144,8 +144,9 @@ Minimum RAM: 256 MiB. Recommended/tested: 2 GiB.
 |---|---|
 | `0x0000000000000000–0x00007FFFFFFFFFFF` | user lower half, per-process |
 | `0x0000000000400000` | user ELF text base |
-| `0x0000600000000000–0x00006FFFFFFFFFFF` | user mmap region |
-| `0x00007FFFF0000000` | user stack top (8 MiB, guard page below) |
+| `0x0000000010000000–0x0000000013FFFFFF` | demand-zero `brk` heap (64 MiB) |
+| `0x0000600000000000–0x000060003FFFFFFF` | anonymous mmap region (1 GiB) |
+| `0x00007FFFFFF00000` | user stack top (1 MiB growth, guard below) |
 | `0xFFFF800000000000–0xFFFFBFFFFFFFFFFF` | direct physical map (`phys_to_virt`) |
 | `0xFFFFFFFF80000000–0xFFFFFFFF9FFFFFFF` | kernel image (linked here, 512 MiB) |
 | `0xFFFFFFFFA0000000–0xFFFFFFFFBFFFFFFF` | kernel heap / slab |
@@ -270,7 +271,7 @@ magic/version before touching any field.
 | 3 | `close` | 61 | `wait4` |
 | 4/5 | `stat`/`fstat` | 62 | `kill` |
 | 8 | `lseek` | 63 | `uname` |
-| 9/11 | `mmap`/`munmap` | 79/80 | `getcwd`/`chdir` |
+| 9/11 | `mmap`/`munmap` | 83/84 | `chdir`/`getcwd` |
 | 12 | `brk` | 217 | `getdents64` |
 | 16 | `ioctl` | 35 | `nanosleep` |
 | 22 | `pipe` | 39 | `getpid` |
@@ -308,8 +309,8 @@ Custom debug helpers (not part of the POSIX surface): `sys_procs` (for `ps`),
 /etc/motd
 ```
 
-* Tiny libc: `crt0`, syscall wrappers, `string`, `stdlib` (`malloc` via `brk` +
-  `mmap`), `printf`/`vsnprintf`, minimal stdio, `dirent`, `errno`, `ctype`.
+* Tiny libc: `crt0`, syscall wrappers, `string`, `stdlib` (`malloc` via `brk`),
+  `stdio` (`printf`/`vsnprintf`), `unistd`, `errno`, and `ctype`.
 * Static non-PIE ELF at `0x400000`, linked with `linker/user.ld`.
 * Shell supports pipelines (`|`), input/output redirection (`<`, `>`), and
   background execution is intentionally omitted.
@@ -783,23 +784,21 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
   reparenting, per-process fd tables.
 * [x] COW `fork` with page refcounts; timer-based sleep queues and `kill`
   (SIGKILL/SIGTERM) with wait-status delivery.
-* [ ] `brk`, anonymous `mmap`, `munmap`, guard-page stack growth.
+* [x] `brk`, anonymous `mmap`, `munmap`, demand-zero heap pages, and guarded
+  downward stack growth.
 * [x] Shared `crt0`, user ABI header; `init`, `echo`.
-* [ ] Tiny libc + `sh`, `ls`, `cat`, `pwd`, `ps`, `kill`, `sleep`, `uname`,
+* [x] Tiny libc + `sh`, `ls`, `cat`, `pwd`, `ps`, `kill`, `sleep`, `uname`,
   `clear`, `wc`, `head`.
-  **Partial:** `sh`, `ls`, `cat`, `wc`, `head`, `ps`, `sleep`, `kill`,
-  `clear`, and `uname` exist; the shell has `exit`/`help`/`pwd` builtins. A
-  shared libc and a standalone `pwd` binary remain open.
-* [ ] Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
-  **Partial:** external exec through `/bin`, line editing, blocking console
-  reads, up to four-stage pipelines (`pipe` + `dup2`), and `<`/`>` redirection
-  work. Builtins remain limited to `exit`, `help`, and `pwd`.
+  **Done:** a shared libc provides `string`, `stdlib`, `stdio`, `unistd`,
+  `errno`, and `ctype`; all utilities and a standalone `pwd` link against it.
+* [x] Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
+  External exec through `/bin`, line editing, blocking console reads, up to
+  four-stage pipelines (`pipe` + `dup2`), `<`/`>` redirection, per-process
+  working directories, and `cd`/`clear`/`exit`/`help`/`pwd` builtins work.
 * [x] `make test-proc`: fork/exec/wait, fd inheritance, timer preemption.
 * [x] `make test-sh`: shell builtins, external commands, and clean exit.
-* [ ] Stress tests: 100 sequential forks, COW write separation, fork bomb
-  capped by a process limit, exec failure rollback.
-  **Partial:** a 20-fork COW write-separation loop runs in `/init`; the larger
-  stress cases are still open.
+* [x] Stress tests: 100 sequential forks, COW write separation, fork bomb
+  capped by a process limit, exec failure rollback, and heap/mmap/stack checks.
 
 **Accept:** interactive shell runs `ls /`, `cat /etc/motd`, `echo hi | wc`,
 `ps` shows init/sh/ps, Ctrl-D exits, and the system remains responsive after

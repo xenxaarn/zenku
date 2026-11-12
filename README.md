@@ -37,10 +37,11 @@ repository. The result boots from a single `build/os.iso` image.
 - **Filesystem and devices** — read-only ext2, a POSIX-style VFS, devfs under
   `/dev`, and 4 KiB pipes with `EAGAIN`, `EPIPE`, and EOF semantics.
 - **Processes** — per-process page tables and 16 KiB kernel stacks, copy-on-write
-  `fork`, `execve`, blocking `wait4`, and 100 Hz round-robin preemption.
-- **Userland** — a freestanding ABI header, shared `crt0`, `/init`, `/bin/sh`
+  `fork`, `execve`, blocking `wait4`, `brk`, anonymous `mmap`/`munmap`, guarded
+  stack growth, and 100 Hz round-robin preemption.
+- **Userland** — a freestanding C library, shared `crt0`, `/init`, `/bin/sh`
   with multi-stage pipelines and `<`/`>` redirection, plus `ls`, `cat`, `wc`,
-  `head`, `ps`, `sleep`, `kill`, `clear`, `uname`, and `echo`.
+  `head`, `pwd`, `ps`, `sleep`, `kill`, `clear`, `uname`, and `echo`.
 - **Automated verification** — serial/PS2/QEMU integration tests for the boot
   chain, memory, filesystem, syscalls, scheduler, shell, and fault paths.
 
@@ -66,7 +67,10 @@ BIOS / SeaBIOS
 
 | Region | Virtual address | Purpose |
 |---|---|---|
-| User space | `0x0000000000400000` | ELF images and user stacks |
+| User text | `0x0000000000400000` | Static ELF images |
+| User heap | `0x0000000010000000` | Demand-zero `brk` heap |
+| User mmap | `0x0000600000000000` | Anonymous mappings |
+| User stack | `0x00007FFFFFF00000` | Guarded, downward-growing stack |
 | Direct map | `0xFFFF800000000000` | 4 GiB physical memory window |
 | Kernel image | `0xFFFFFFFF80000000` | Kernel text, data, and BSS |
 | Kernel heap | `0xFFFFFFFFA0000000` | 16 MiB general-purpose heap |
@@ -113,8 +117,8 @@ make test-faults  # inject #DE/#UD/#GP/#PF and verify panic handling
 make test-input   # PS/2 keyboard and mouse path
 make test-serial  # COM1 receive over IRQ4
 make test-fs      # ext2, VFS, and devfs
-make test-user    # ring-3 entry, syscalls, and user copies
-make test-proc    # fork, exec, wait, pipes, preemption, COW
+make test-user    # ring-3 entry, syscalls, brk/mmap, and user copies
+make test-proc    # fork, exec, wait, pipes, preemption, COW stress
 make test-sh      # shell builtins, coreutils, and pipelines
 make check        # fast C/assembly/shell/Python syntax checks
 make check-link   # syntax checks plus stage3 and kernel link checks
@@ -128,11 +132,15 @@ The kernel console accepts `help`, `fetch`, `mem`, `ticks`, `uptime`,
 `version`, `clear`, `colors`, `ls`, `cat`, `stat`, `devtest`, `init`, `sh`,
 and `ps`.
 
-`sh` starts the userland shell. It supports `exit`, `help`, and `pwd`
-builtins, external programs in `/bin`, and pipelines of up to four stages:
+`sh` starts the userland shell. It supports `cd`, `clear`, `exit`, `help`,
+and `pwd` builtins, external programs in `/bin`, and pipelines of up to four
+stages:
 
 ```text
-sh> ls /
+sh> cd /bin
+sh> pwd
+sh> ls
+sh> cd ..
 sh> cat /hello.txt
 sh> wc < /hello.txt
 sh> cat /etc/motd | head -n 1
@@ -152,7 +160,7 @@ boot/       stage1, stage2, and stage3 boot chain
 kernel/     higher-half kernel: arch, memory, filesystem, scheduler, syscalls
 drivers/    PIC, PIT, PS/2, mouse, and serial drivers
 fs/         shared ext2 implementation used by stage3 and the kernel
-libc/       freestanding user-space ABI and headers
+libc/       freestanding C library, ABI header, and standard headers
 user/       crt0, init, shell, and coreutils
 docs/       plan, boot protocol, and screenshots
 linker/     kernel, stage3, and user linker scripts

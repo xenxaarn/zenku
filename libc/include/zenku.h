@@ -3,12 +3,15 @@
 
 /*
  * Tiny freestanding user-space ABI for Zenku. Each helper is a static inline
- * int 0x80 wrapper; there is no libc yet.
+ * int 0x80 wrapper. The standard headers in this directory provide a small
+ * C library built on top of these calls.
  */
 
 typedef unsigned long size_t;
 typedef long ssize_t;
 typedef long off_t;
+typedef unsigned long uintptr_t;
+typedef long intptr_t;
 
 #define O_RDONLY 0x0000
 #define O_WRONLY 0x0001
@@ -19,12 +22,27 @@ typedef long off_t;
 #define SEEK_CUR 1
 #define SEEK_END 2
 
+#define PROT_NONE  0x0
+#define PROT_READ  0x1
+#define PROT_WRITE 0x2
+#define PROT_EXEC  0x4
+
+#define MAP_SHARED    0x01
+#define MAP_PRIVATE   0x02
+#define MAP_FIXED     0x10
+#define MAP_ANONYMOUS 0x20
+
+#define MAP_FAILED ((void *)-1)
+
 #define SYS_read    0
 #define SYS_write   1
 #define SYS_open    2
 #define SYS_close   3
 #define SYS_fstat   5
 #define SYS_lseek   8
+#define SYS_mmap    9
+#define SYS_munmap  11
+#define SYS_brk     12
 #define SYS_pipe    22
 #define SYS_yield   24
 #define SYS_dup2    33
@@ -39,6 +57,8 @@ typedef long off_t;
 #define SYS_sleep  80
 #define SYS_getticks 81
 #define SYS_clear  82
+#define SYS_chdir  83
+#define SYS_getcwd 84
 #define SYS_getppid 110
 
 #define ZP_FREE   0
@@ -97,6 +117,22 @@ static inline long syscall3(long number, long a, long b, long c)
     return ret;
 }
 
+static inline long syscall6(long number, long a, long b, long c, long d,
+                            long e, long f)
+{
+    register long r10 __asm__("r10") = d;
+    register long r8 __asm__("r8") = e;
+    register long r9 __asm__("r9") = f;
+    long ret;
+
+    __asm__ volatile("int $0x80"
+                     : "=a"(ret)
+                     : "a"(number), "D"(a), "S"(b), "d"(c), "r"(r10),
+                       "r"(r8), "r"(r9)
+                     : "rcx", "r11", "memory");
+    return ret;
+}
+
 static inline long sys_read(int fd, void *buf, size_t len)
 {
     return syscall3(SYS_read, fd, (long)buf, (long)len);
@@ -132,6 +168,23 @@ static inline long sys_pipe(int fds[2])
     return syscall3(SYS_pipe, (long)fds, 0, 0);
 }
 
+static inline long sys_brk(void *addr)
+{
+    return syscall1(SYS_brk, (long)addr);
+}
+
+static inline void *sys_mmap(void *addr, size_t length, int prot, int flags,
+                             int fd, off_t offset)
+{
+    return (void *)syscall6(SYS_mmap, (long)addr, (long)length, prot, flags,
+                            fd, (long)offset);
+}
+
+static inline long sys_munmap(void *addr, size_t length)
+{
+    return syscall3(SYS_munmap, (long)addr, (long)length, 0);
+}
+
 static inline long sys_dup2(int oldfd, int newfd)
 {
     return syscall3(SYS_dup2, oldfd, newfd, 0);
@@ -161,6 +214,16 @@ static inline unsigned long sys_getticks(void)
 static inline long sys_clear(void)
 {
     return syscall1(SYS_clear, 0);
+}
+
+static inline long sys_chdir(const char *path)
+{
+    return syscall1(SYS_chdir, (long)path);
+}
+
+static inline long sys_getcwd(char *buf, size_t size)
+{
+    return syscall3(SYS_getcwd, 0, (long)buf, (long)size);
 }
 
 static inline long sys_yield(void)

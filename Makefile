@@ -46,7 +46,12 @@ USER_SLEEP_ELF  := $(BUILD)/user/sleep.elf
 USER_KILL_ELF   := $(BUILD)/user/kill.elf
 USER_HEAD_ELF   := $(BUILD)/user/head.elf
 USER_CLEAR_ELF  := $(BUILD)/user/clear.elf
+USER_PWD_ELF    := $(BUILD)/user/pwd.elf
 USER_BIN_DIR    := $(BUILD)/user/bin
+
+USER_LIBC_SRCS  := libc/src/string.c libc/src/stdlib.c libc/src/stdio.c \
+                   libc/src/unistd.c libc/src/ctype.c libc/src/errno.c
+USER_LIBC_OBJS  := $(patsubst %.c,$(BUILD)/user/obj/%.o,$(USER_LIBC_SRCS))
 ROOTFS          := $(BUILD)/rootfs.ext2
 ROOTFS_TEST     := $(BUILD)/test/rootfs.ext2
 ISO             := $(BUILD)/os.iso
@@ -191,70 +196,75 @@ $(BUILD)/user/obj/%.o: %.asm | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
 	$(NASM) -f elf64 -o $@ $<
 
-$(USER_INIT_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/init/init.o user/user.ld
+$(USER_INIT_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/init/init.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/init/init.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/init/init.o $(USER_LIBC_OBJS)
 
-$(USER_ECHO_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/echo.o user/user.ld
+$(USER_ECHO_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/echo.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/echo.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/echo.o $(USER_LIBC_OBJS)
 
-$(USER_SH_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/sh/sh.o user/user.ld
+$(USER_SH_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/sh/sh.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/sh/sh.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/sh/sh.o $(USER_LIBC_OBJS)
 
-$(USER_CAT_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/cat.o user/user.ld
+$(USER_CAT_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/cat.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/cat.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/cat.o $(USER_LIBC_OBJS)
 
-$(USER_UNAME_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/uname.o user/user.ld
+$(USER_UNAME_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/uname.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/uname.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/uname.o $(USER_LIBC_OBJS)
 
-$(USER_LS_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ls.o user/user.ld
+$(USER_LS_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ls.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ls.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ls.o $(USER_LIBC_OBJS)
 
-$(USER_WC_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/wc.o user/user.ld
+$(USER_WC_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/wc.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/wc.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/wc.o $(USER_LIBC_OBJS)
 
-$(USER_PS_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ps.o user/user.ld
+$(USER_PS_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ps.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ps.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ps.o $(USER_LIBC_OBJS)
 
-$(USER_SLEEP_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/sleep.o user/user.ld
+$(USER_SLEEP_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/sleep.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/sleep.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/sleep.o $(USER_LIBC_OBJS)
 
-$(USER_KILL_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/kill.o user/user.ld
+$(USER_KILL_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/kill.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/kill.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/kill.o $(USER_LIBC_OBJS)
 
-$(USER_HEAD_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/head.o user/user.ld
+$(USER_HEAD_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/head.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/head.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/head.o $(USER_LIBC_OBJS)
 
-$(USER_CLEAR_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/clear.o user/user.ld
+$(USER_CLEAR_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/clear.o user/user.ld $(USER_LIBC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
-		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/clear.o
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/clear.o $(USER_LIBC_OBJS)
+
+$(USER_PWD_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/pwd.o user/user.ld $(USER_LIBC_OBJS)
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/pwd.o $(USER_LIBC_OBJS)
 
 $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
            $(USER_CAT_ELF) $(USER_UNAME_ELF) $(USER_LS_ELF) $(USER_WC_ELF) \
            $(USER_PS_ELF) $(USER_SLEEP_ELF) $(USER_KILL_ELF) \
-           $(USER_HEAD_ELF) $(USER_CLEAR_ELF) \
+           $(USER_HEAD_ELF) $(USER_CLEAR_ELF) $(USER_PWD_ELF) \
            scripts/mkrootfs.sh | $(BUILD)/dirs
 	@mkdir -p $(USER_BIN_DIR)
 	cp $(USER_ECHO_ELF) $(USER_BIN_DIR)/echo
@@ -268,6 +278,7 @@ $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
 	cp $(USER_KILL_ELF) $(USER_BIN_DIR)/kill
 	cp $(USER_HEAD_ELF) $(USER_BIN_DIR)/head
 	cp $(USER_CLEAR_ELF) $(USER_BIN_DIR)/clear
+	cp $(USER_PWD_ELF) $(USER_BIN_DIR)/pwd
 	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 32 $(USER_INIT_ELF) $(USER_BIN_DIR)
 
 $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs

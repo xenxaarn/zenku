@@ -12,7 +12,7 @@ trap 'rm -f "$LOG"' EXIT
 
 if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
     --wait 40 --wait-line "user: /init returned to the kernel" \
-    --serial-send "$(printf 'sh\rhelp\rpwd\rls /\recho shell works\runame\rcat /hello.txt\recho hi | wc\rcat /etc/motd | head -n 1\rwc < /hello.txt\rcat < /hello.txt | head -n 1\recho hidden > /dev/null\recho visible\recho hi > /hello.txt\rsleep 0\recho after sleep\rps\rexit\r')" \
+    --serial-send "$(printf 'sh\rhelp\rpwd\rcd /bin\rpwd\rls\rcd ..\rpwd\r/bin/pwd\rls /\recho shell works\runame\rcat /hello.txt\recho hi | wc\rcat /etc/motd | head -n 1\rwc < /hello.txt\rcat < /hello.txt | head -n 1\recho hidden > /dev/null\recho visible\recho hi > /hello.txt\rsleep 0\recho after sleep\rps\rexit\r')" \
     > "$LOG" 2>&1; then
     echo "run-sh-test: probe failed"
     cat "$LOG"
@@ -28,7 +28,10 @@ check() {
 }
 
 check "sh> "
-check "shell: builtins: exit, help, pwd"
+check "shell: builtins: cd, clear, exit, help, pwd"
+check "sh> /bin"
+check "sh> /"
+check "pwd"
 check "sh> /"
 check "hello.txt"
 check "shell works"

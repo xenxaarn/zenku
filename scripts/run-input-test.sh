@@ -11,7 +11,7 @@ LOG=$(mktemp "${TMPDIR:-/tmp}/zenku-input.XXXXXX")
 trap 'rm -f "$LOG"' EXIT
 
 if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
-    --wait 20 --wait-line "desktop: terminal ready" \
+    --wait 60 --wait-line "user: /init returned to the kernel" \
     --keys "h,e,p,left,l,ret" --mouse "200,120" > "$LOG" 2>&1; then
     echo "run-input-test: probe failed"
     cat "$LOG"

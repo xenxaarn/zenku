@@ -52,6 +52,17 @@ static void print_uint(unsigned long value)
     }
 }
 
+static __attribute__((noinline)) int stack_growth_probe(void)
+{
+    volatile unsigned char *probe;
+    unsigned long sp;
+
+    __asm__ volatile("mov %%rsp, %0" : "=r"(sp));
+    probe = (volatile unsigned char *)(sp - 65536);
+    probe[0] = 0x5a;
+    return probe[0] == 0x5a;
+}
+
 int main(long argc, char **argv)
 {
     char buf[64];
@@ -273,7 +284,7 @@ int main(long argc, char **argv)
     {
         int ok = 1;
 
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 100; i++) {
             long child;
             int status = -1;
 
@@ -292,7 +303,7 @@ int main(long argc, char **argv)
             }
         }
         if (ok) {
-            print("cow: 20 fork stress ok\n");
+            print("cow: 100 fork stress ok\n");
         } else {
             print("cow: fork stress FAILED\n");
         }
@@ -360,6 +371,103 @@ int main(long argc, char **argv)
             }
         } else {
             print("kill: fork FAILED\n");
+        }
+    }
+
+    {
+        unsigned char *base = (unsigned char *)(uintptr_t)sys_brk(0);
+        unsigned char *next = base + 8192;
+        volatile unsigned char *heap = (volatile unsigned char *)base;
+
+        if ((unsigned char *)(uintptr_t)sys_brk(next) == next) {
+            heap[0] = 0x11;
+            heap[4097] = 0x22;
+            heap[8191] = 0x33;
+            if (heap[0] == 0x11 && heap[4097] == 0x22 &&
+                heap[8191] == 0x33) {
+                print("vm: brk demand-zero pages ok\n");
+            } else {
+                print("vm: brk data FAILED\n");
+            }
+        } else {
+            print("vm: brk grow FAILED\n");
+        }
+    }
+
+    {
+        volatile unsigned char *map = (volatile unsigned char *)sys_mmap(
+            0, 3 * 4096, PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+        if (map != (void *)-1) {
+            map[0] = 0x41;
+            map[4096] = 0x42;
+            map[8191] = 0x43;
+            if (map[0] == 0x41 && map[4096] == 0x42 && map[8191] == 0x43 &&
+                sys_munmap((void *)map, 3 * 4096) == 0) {
+                print("vm: anonymous mmap and munmap ok\n");
+            } else {
+                print("vm: mmap data FAILED\n");
+            }
+        } else {
+            print("vm: mmap FAILED\n");
+        }
+    }
+
+    if (stack_growth_probe()) {
+        print("vm: stack guard growth ok\n");
+    } else {
+        print("vm: stack growth FAILED\n");
+    }
+
+    {
+        long child = sys_fork();
+
+        if (child == 0) {
+            char *args[] = {"/bin/missing", 0};
+
+            if (sys_execve("/bin/missing", args, 0) < 0) {
+                print("exec: failure rollback ok\n");
+                sys_exit(7);
+            }
+            sys_exit(1);
+        } else if (child > 0) {
+            int status = -1;
+
+            if (sys_wait4(child, &status, 0) == child && status == 7) {
+                print("exec: rollback status ok\n");
+            } else {
+                print("exec: rollback FAILED\n");
+            }
+        } else {
+            print("exec: fork FAILED\n");
+        }
+    }
+
+    {
+        int spawned = 0;
+        int failed = 0;
+
+        for (int i = 0; i < 32; i++) {
+            long child = sys_fork();
+
+            if (child == 0) {
+                sys_sleep_ms(300);
+                sys_exit(0);
+            } else if (child > 0) {
+                spawned++;
+            } else {
+                failed = 1;
+                break;
+            }
+        }
+
+        while (sys_wait4(-1, 0, 0) > 0) {
+        }
+        if (failed && spawned >= 10) {
+            print("fork: process limit enforced ok\n");
+        } else {
+            print("fork: process limit FAILED\n");
         }
     }
 

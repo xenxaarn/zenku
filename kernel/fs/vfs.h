@@ -74,6 +74,12 @@ void vfs_fdtable_destroy(int id);
 void vfs_fdtable_select(int id);
 
 int vfs_stat(const char *path, struct vfs_stat *out);
+
+/* Resolve a path against the active process's current directory. */
+int vfs_resolve(const char *path, char *out, size_t cap);
+int vfs_chdir(const char *path);
+/* Copies the current directory into `out`; returns the length including NUL. */
+int vfs_getcwd(char *out, size_t cap);
 int64_t vfs_read_file(const char *path, void *buf, uint64_t cap);
 int vfs_list(const char *path, vfs_dir_cb cb, void *ctx);
 

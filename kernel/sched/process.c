@@ -17,7 +17,16 @@
 
 #define USER_STACK_TOP   0x00007FFFFFF00000ull
 #define USER_STACK_PAGES 4
+#define USER_STACK_LIMIT (USER_STACK_TOP - 0x100000ull)
 #define PHYS_MAP_BASE    0xFFFF800000000000ull
+
+#define USER_HEAP_BASE   0x0000000010000000ull
+#define USER_HEAP_SIZE   (64ull * 1024 * 1024)
+#define USER_MMAP_BASE   0x0000600000000000ull
+#define USER_MMAP_SIZE   (1ull * 1024 * 1024 * 1024)
+
+#define MAP_FIXED      0x10
+#define MAP_ANONYMOUS  0x20
 
 #define USER_CS 0x1B
 #define USER_SS 0x23
@@ -71,6 +80,17 @@ static struct process *find_pid(int pid)
     return NULL;
 }
 
+static void reset_memory_layout(struct process *p)
+{
+    p->heap_base = USER_HEAP_BASE;
+    p->heap_brk = USER_HEAP_BASE;
+    p->heap_limit = USER_HEAP_BASE + USER_HEAP_SIZE;
+    p->mmap_next = USER_MMAP_BASE;
+    p->mmap_end = USER_MMAP_BASE + USER_MMAP_SIZE;
+    p->stack_bottom = USER_STACK_TOP - USER_STACK_PAGES * PAGE_SIZE;
+    p->stack_limit = USER_STACK_LIMIT;
+}
+
 static struct process *process_alloc(int ppid, const char *path)
 {
     for (int i = 0; i < PROCESS_MAX; i++) {
@@ -84,6 +104,7 @@ static struct process *process_alloc(int ppid, const char *path)
         p->ppid = ppid;
         p->state = PROC_READY;
         p->fdt = -1;
+        reset_memory_layout(p);
         copy_name(p, path);
         return p;
     }
@@ -221,6 +242,7 @@ static int load_into_process(struct process *p, const char *path, int argc,
     if (rc < 0) {
         return rc;
     }
+    reset_memory_layout(p);
     rc = map_user_stack();
     if (rc < 0) {
         return rc;
@@ -462,6 +484,13 @@ int process_fork(struct regs *frame)
     child->fdt = fdt;
     child->kstack_top = ((uint64_t)(uintptr_t)child->kstack + PROCESS_KSTACK) &
                         ~15ull;
+    child->heap_base = parent->heap_base;
+    child->heap_brk = parent->heap_brk;
+    child->heap_limit = parent->heap_limit;
+    child->mmap_next = parent->mmap_next;
+    child->mmap_end = parent->mmap_end;
+    child->stack_bottom = parent->stack_bottom;
+    child->stack_limit = parent->stack_limit;
     child->regs = *frame;
     child->regs.rax = 0;
     child->state = PROC_READY;
@@ -681,6 +710,172 @@ void process_sleep(struct regs *frame, uint64_t ms)
     /* The saved frame already points after int 0x80, so the process resumes
      * normally when the timer wakes it. */
     process_schedule(frame);
+}
+
+static uint64_t page_align_down(uint64_t value)
+{
+    return value & ~(PAGE_SIZE - 1);
+}
+
+static uint64_t page_align_up(uint64_t value)
+{
+    return (value + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+}
+
+static bool map_zero_page(uint64_t virt)
+{
+    uint64_t frame = pmm_alloc_frame();
+
+    if (frame == 0) {
+        return false;
+    }
+    memset((void *)(uintptr_t)(PHYS_MAP_BASE + frame), 0, PAGE_SIZE);
+    if (vmm_map(virt, frame, VMM_USER_FLAGS) != 0) {
+        pmm_free_frame(frame);
+        return false;
+    }
+    return true;
+}
+
+/* Clear bytes that became part of the heap again after a shrink. Only pages
+ * that are already mapped are touched; unmapped pages are demand-zero. */
+static void zero_mapped_range(uint64_t start, uint64_t end)
+{
+    for (uint64_t page = page_align_down(start); page < end;
+         page += PAGE_SIZE) {
+        uint64_t from = page > start ? page : start;
+        uint64_t to = page + PAGE_SIZE < end ? page + PAGE_SIZE : end;
+
+        if (vmm_is_mapped(page)) {
+            /* A page inherited across fork is read-only until COW resolves;
+             * break the sharing before the kernel writes zeros into it. */
+            (void)vmm_cow_fault(page, 0x2 | 0x4);
+            memset((void *)(uintptr_t)from, 0, (size_t)(to - from));
+        }
+    }
+}
+
+int64_t process_brk(uint64_t new_brk)
+{
+    struct process *p = g_current;
+    uint64_t old;
+
+    if (!p) {
+        return -ESRCH;
+    }
+    if (new_brk == 0) {
+        return (int64_t)p->heap_brk;
+    }
+    if (new_brk < p->heap_base || new_brk > p->heap_limit) {
+        return (int64_t)p->heap_brk;
+    }
+
+    old = p->heap_brk;
+    if (new_brk < old) {
+        for (uint64_t page = page_align_up(new_brk);
+             page < page_align_up(old); page += PAGE_SIZE) {
+            vmm_unmap(page);
+        }
+    } else if (new_brk > old) {
+        zero_mapped_range(old, new_brk);
+    }
+    p->heap_brk = new_brk;
+    return (int64_t)new_brk;
+}
+
+uint64_t process_mmap(uint64_t addr, uint64_t length, int prot, int flags)
+{
+    struct process *p = g_current;
+    uint64_t start;
+    uint64_t end;
+
+    (void)prot;
+    if (!p || length == 0) {
+        return (uint64_t)-EINVAL;
+    }
+    if (!(flags & MAP_ANONYMOUS)) {
+        return (uint64_t)-ENODEV;
+    }
+
+    length = page_align_up(length);
+    if (length == 0) {
+        return (uint64_t)-EINVAL;
+    }
+
+    if (flags & MAP_FIXED) {
+        start = page_align_down(addr);
+        if (start < USER_MMAP_BASE || start < p->mmap_next) {
+            return (uint64_t)-EINVAL;
+        }
+    } else {
+        start = page_align_up(p->mmap_next);
+    }
+    end = start + length;
+    if (end < start || end > p->mmap_end) {
+        return (uint64_t)-ENOMEM;
+    }
+    for (uint64_t page = start; page < end; page += PAGE_SIZE) {
+        if (vmm_is_mapped(page)) {
+            return (uint64_t)-EINVAL;
+        }
+    }
+
+    for (uint64_t page = start; page < end; page += PAGE_SIZE) {
+        if (!map_zero_page(page)) {
+            vmm_unmap_range(start, page - start);
+            return (uint64_t)-ENOMEM;
+        }
+    }
+
+    if (end > p->mmap_next) {
+        p->mmap_next = end;
+    }
+    return start;
+}
+
+int process_munmap(uint64_t addr, uint64_t length)
+{
+    struct process *p = g_current;
+    uint64_t start;
+    uint64_t end;
+
+    if (!p || length == 0) {
+        return -EINVAL;
+    }
+    start = page_align_down(addr);
+    end = page_align_up(addr + length);
+    if (end < addr || start < USER_MMAP_BASE || end > p->mmap_next) {
+        return -EINVAL;
+    }
+    for (uint64_t page = start; page < end; page += PAGE_SIZE) {
+        vmm_unmap(page);
+    }
+    return 0;
+}
+
+bool process_page_fault(uint64_t virt, uint64_t error)
+{
+    struct process *p = g_current;
+    uint64_t page;
+
+    if (!p || (error & 0x1) || !(error & 0x4)) {
+        return false;
+    }
+    page = page_align_down(virt);
+
+    if (virt >= p->heap_base && virt < p->heap_brk) {
+        return map_zero_page(page);
+    }
+    if (virt >= p->stack_limit && virt < p->stack_bottom) {
+        if (!map_zero_page(page)) {
+            return false;
+        }
+        if (page < p->stack_bottom) {
+            p->stack_bottom = page;
+        }
+        return true;
+    }
+    return false;
 }
 
 void process_tick(struct regs *frame)

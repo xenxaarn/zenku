@@ -168,6 +168,35 @@ static int64_t sys_pipe(uint64_t fds_ptr)
     return 0;
 }
 
+static int64_t sys_chdir(uint64_t path_ptr)
+{
+    char path[MAX_USER_PATH];
+
+    if (copy_user_path(path_ptr, path, sizeof(path)) < 0) {
+        return -EFAULT;
+    }
+    return vfs_chdir(path);
+}
+
+static int64_t sys_getcwd(uint64_t buf, uint64_t size)
+{
+    char path[VFS_NAME_MAX];
+    int len;
+
+    if (size == 0 || !user_range_ok(buf, size)) {
+        return -EFAULT;
+    }
+    len = vfs_getcwd(path, sizeof(path));
+    if (len < 0) {
+        return len;
+    }
+    if ((uint64_t)len > size) {
+        return -ERANGE;
+    }
+    memcpy((void *)(uintptr_t)buf, path, (size_t)len);
+    return len;
+}
+
 static int64_t sys_getpid(void)
 {
     return process_getpid();
@@ -253,6 +282,16 @@ void syscall_dispatch(struct regs *r)
     case SYS_lseek:
         ret = sys_lseek((int)r->rdi, (int64_t)r->rsi, (int)r->rdx);
         break;
+    case SYS_mmap:
+        ret = (int64_t)process_mmap(r->rdi, r->rsi, (int)r->rdx,
+                                    (int)r->r10);
+        break;
+    case SYS_munmap:
+        ret = process_munmap(r->rdi, r->rsi);
+        break;
+    case SYS_brk:
+        ret = process_brk(r->rdi);
+        break;
     case SYS_pipe:
         ret = sys_pipe(r->rdi);
         break;
@@ -282,6 +321,12 @@ void syscall_dispatch(struct regs *r)
     case SYS_clear:
         console_clear();
         ret = 0;
+        break;
+    case SYS_chdir:
+        ret = sys_chdir(r->rdi);
+        break;
+    case SYS_getcwd:
+        ret = sys_getcwd(r->rsi, r->rdx);
         break;
     case SYS_yield:
         process_yield(r);

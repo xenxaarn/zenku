@@ -13,6 +13,9 @@
 #define SYS_close  3
 #define SYS_fstat  5
 #define SYS_lseek  8
+#define SYS_mmap   9
+#define SYS_munmap 11
+#define SYS_brk    12
 #define SYS_pipe   22
 #define SYS_yield  24
 #define SYS_dup2   33
@@ -27,6 +30,8 @@
 #define SYS_sleep  80
 #define SYS_getticks 81
 #define SYS_clear  82
+#define SYS_chdir  83
+#define SYS_getcwd 84
 #define SYS_getppid 110
 
 void syscall_dispatch(struct regs *r);
