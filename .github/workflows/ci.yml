@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Build and boot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential nasm xorriso e2fsprogs qemu-system-x86
+
+      - name: Build ISO
+        run: make -j"$(nproc)"
+
+      - name: Run syntax and link checks
+        run: |
+          make check
+          make check-link
+
+      - name: Run boot test
+        run: make test
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: zenku-os-iso
+          path: build/os.iso

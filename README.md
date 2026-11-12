@@ -1,271 +1,177 @@
 # Zenku
 
-**Zenku** is a 64-bit Unix-like operating system and custom bootloader written
-from scratch in C and x86_64 assembly. It targets BIOS first (SeaBIOS and real
-hardware), adds a UEFI path later, and boots from a single `os.iso` that
-contains the bootloader, the kernel, and a read-only ext2 root filesystem.
+**A 64-bit Unix-like operating system, bootloader, and userland built from
+scratch in C and x86_64 assembly.**
 
-The kernel codename is **Thunder**.
+Zenku boots on BIOS PCs, runs a higher-half kernel with 4-level paging, and
+provides a small Unix environment with an ext2 root filesystem, processes,
+pipes, an interactive shell, and core utilities. The kernel codename is
+**Thunder**.
 
-## Status: Phase 5 in progress
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Architecture](https://img.shields.io/badge/arch-x86__64-lightgrey.svg)](#)
+[![Firmware](https://img.shields.io/badge/firmware-BIOS-blue.svg)](#)
+[![Status](https://img.shields.io/badge/status-active%20development-orange.svg)](#)
 
-Phase 5 has the process core and an interactive userland shell working:
+![Zenku running fetch, the shell, a pipeline, and ps](docs/screenshots/hero.png)
 
-- per-process PML4 address spaces: the kernel half is shared, user-space PML4
-  entries are private, and each process has its own 16 KiB kernel stack
-- a 16-slot process table with pid/ppid, states, zombies, and orphan
-  reparenting to pid 1 (or the kernel)
-- copy-on-write `fork` with per-frame reference counts: both address spaces
-  write-protect shared pages and the page-fault path makes a private copy;
-  `execve` copies argv through the syscall boundary, and `wait4` blocks with
-  exit status delivery
-- cooperative `yield` plus timer-driven round-robin preemption at 100 Hz;
-  IRQs taken in the kernel never reschedule
-- per-process file descriptor tables with pipe endpoints inherited on fork
-  and released on exit
-- user-space ABI in `libc/include/zenku.h`, a shared `user/crt0.asm`, and
-  `/bin/echo` loaded from the ext2 rootfs
-- `/init` demonstrates fork + exec + wait, pipe inheritance across fork, exit
-  statuses, copy-on-write separation, a 20-fork stress loop, and timer
-  preemption
-- `/bin/sh`: prompt, line input, `exit`/`help`/`pwd` builtins, external
-  commands launched from `/bin` with fork/exec/wait, and up to four-stage
-  pipelines wired with `pipe` + `dup2`
-- `/bin/ls`, `/bin/cat`, `/bin/wc`, `/bin/ps`, and `/bin/uname` coreutils;
-  kernel command `sh` starts the shell
-- `readdir` exposes ext2 and devfs directory entries by index; `dup2` copies
-  descriptors while maintaining pipe end reference counts
-- terminal input ring in devfs: console reads block on `EAGAIN` while pipes
-  stay non-blocking, and the scheduler idle loop keeps PS/2 and COM1 input
-  flowing whenever every process is waiting
-- `make test-proc` and `make test-sh` cover processes and the interactive path
+## Overview
 
-Still on the Phase 5 list: `brk`/`mmap`, a richer libc, more coreutils,
-shell redirection, `kill`/sleep queues, and the fork-bomb/stress tests.
+Zenku is a compact operating system written for learning and experimentation,
+with production-style engineering discipline: every boot stage validates its
+inputs, kernel memory is isolated, user pointers are checked at the syscall
+boundary, and every subsystem is exercised by automated QEMU tests.
 
-## Phase 4: filesystem and user mode
+There is no GRUB, Limine, Multiboot, or borrowed kernel. The boot chain,
+kernel, VFS, scheduler, shell, and core utilities are all part of this
+repository. The result boots from a single `build/os.iso` image.
 
-Phase 4 covered the filesystem and user-mode paths:
+## Features
 
-- ramdisk block device over the initrd (512-byte blocks, direct map)
-- ext2 read-only mount in the kernel, sharing `fs/ext2.c` with stage3
-- VFS layer: path resolution, inode stat, directory walk, and a 32-slot file
-  descriptor table (`open`, `read`, `write`, `lseek`, `close`, `fstat`)
-- devfs under `/dev`: `console`, `tty0`, `ttyS0`, `null`, `zero`
-- ELF64 loader with user page mappings and a guard-checked user copy path
-- ring-3 entry through `iretq` with a TSS syscall stack, and clean return to
-  the kernel when the process exits
-- pipefs: 4 KiB non-blocking pipes with `EAGAIN`, `EPIPE`, and EOF semantics
-- `int 0x80` syscalls: `read`, `write`, `open`, `close`, `lseek`, `fstat`,
-  `pipe`, `getpid`, `getppid`, `exit`
-- `/init` is built from `user/init/init.c`, stored in the ext2 rootfs, loaded
-  from the VFS, and run in ring 3 (it reports `cs 0x1b`)
-- kernel commands: `ls`, `cat <path>`, `stat <path>`, `devtest`, `init`
-- demo rootfs content: `/README`, `/etc/motd`, `/etc/hostname`, `/hello.txt`
-- `make test-fs` lists, cats, and stats files over COM1, then exercises devfs
-  and confirms ext2 rejects writes with `EROFS`
-- `make test-user` checks ring-3 entry, syscalls, pipes, bad-pointer
-  rejection, and a clean exit back to the shell
+- **Custom BIOS boot chain** — El Torito stage1, E820/VBE/ISO9660 stage2, and
+  a 64-bit stage3 loader that mounts ext2 and loads the kernel.
+- **Higher-half kernel** — linked at `0xFFFFFFFF80000000`, 4-level paging,
+  4 GiB direct map, 16 MiB kernel heap, and a bitmap physical frame allocator.
+- **Fault-safe core** — GDT/TSS with double-fault IST, 256-entry IDT,
+  readable panic dumps, and boot-time PMM/VMM/heap self-tests.
+- **Filesystem and devices** — read-only ext2, a POSIX-style VFS, devfs under
+  `/dev`, and 4 KiB pipes with `EAGAIN`, `EPIPE`, and EOF semantics.
+- **Processes** — per-process page tables and 16 KiB kernel stacks, copy-on-write
+  `fork`, `execve`, blocking `wait4`, and 100 Hz round-robin preemption.
+- **Userland** — a freestanding ABI header, shared `crt0`, `/init`, `/bin/sh`
+  with multi-stage pipelines, and `ls`, `cat`, `wc`, `ps`, `uname`, and `echo`.
+- **Automated verification** — serial/PS2/QEMU integration tests for the boot
+  chain, memory, filesystem, syscalls, scheduler, shell, and fault paths.
 
-Phase 4 delivered the VFS and ring-3 foundation. The Phase 5 scheduler now
-gives each process its own address space; the old single-process loader has
-been retired.
+## Screenshots
 
-Phase 3 completed the interactive path:
+| Interactive shell | Scheduler and processes | ext2 and devfs |
+|:---:|:---:|:---:|
+| ![Zenku shell](docs/screenshots/shell.png) | ![Process scheduling](docs/screenshots/scheduler.png) | ![Filesystem and devices](docs/screenshots/filesystem.png) |
 
-- PS/2 controller and keyboard (IRQ1), US layout, shift/ctrl/alt/caps, and
-  extended arrow/navigation keys
-- serial driver with polled TX and IRQ4 receive, feeding the same input queue
-  as the keyboard
-- PS/2 mouse (IRQ12): packet decoding, on-screen arrow cursor drawn in the
-  main context, clamped to the framebuffer
-- double-buffered framebuffer: all drawing goes to a heap-backed shadow
-  buffer and is blitted on change
-- framebuffer text console with wrapping, scrolling, backspace, tabs, and
-  256-line scrollback (PgUp/PgDn)
-- tty line discipline: Left/Right/Home/End/Delete editing and a 16-entry
-  command history (Up/Down)
-- ANSI SGR colors (30-37, 90-97, reset) with a `colors` demo command
-- desktop skeleton: wallpaper, taskbar, terminal window with click-to-focus,
-  live clock, and a live prompt
-- built-in commands: `help`, `fetch`, `mem`, `ticks`, `uptime`, `version`,
-  `clear`; `fetch` prints a fastfetch-style system summary
-- `make test-input` types `help` and moves the mouse through the QEMU monitor,
-  checking console and pointer paths end to end
-- `make test-serial` types `help` over COM1 and checks the IRQ4 path
+## Architecture
 
-Remaining polish: ANSI cursor addressing and richer desktop chrome.
+```
+BIOS / SeaBIOS
+  └─ stage1        El Torito boot image, real-mode loader
+      └─ stage2    E820, VBE, ISO9660, loads stage3 and rootfs
+          └─ stage3  long mode, ext2, ELF64, page tables
+              └─ Thunder kernel
+                  ├─ memory: PMM, VMM, heap
+                  ├─ storage: ext2, VFS, devfs, pipes
+                  ├─ execution: ELF loader, syscalls, user copies
+                  └─ processes: scheduler, COW fork, exec, wait
+```
 
-Phase 2 made the kernel safe to fault and gave it memory to work with:
-
-- GDT/TSS with a dedicated double-fault IST stack
-- 256-entry IDT with stubs for all CPU exceptions and 16 PIC IRQs
-- readable panic dumps (vector, error, registers, RIP/RSP, CR0/CR2/CR3/CR4)
-- PIC remapped to `0x20/0x28`, PIT running at 100 Hz
-- bitmap physical frame allocator built from E820, with reserved boot/MMIO
-  regions
-- 4 KiB virtual memory manager (map/unmap/protect/translate) on the stage3
-  page tables
-- 16 MiB kernel heap with split/coalesce `kmalloc`/`kfree`/`krealloc`
-- boot self-tests for PMM leaks, VMM mappings, and heap coalescing
-- `make test-faults` injects `#DE`, `#UD`, `#GP`, and `#PF` and checks that
-  each produces a readable panic
-
-Phase 1 completed the boot chain up to a running higher-half kernel:
-
-- stage1 reads the stage2 payload from the El Torito extent
-- stage2 collects E820, copies the BIOS 8x16 font, reads ISO9660, loads
-  `STAGE3.BIN` and `ROOT.EXT2`, selects a 1024x768x32 VBE mode, enters long
-  mode, and jumps to the 64-bit stage3 loader
-- stage3 mounts the read-only ext2 image, loads `/kernel` (ELF64), builds the
-  identity map, the 4 GiB direct map, and the 512 MiB kernel map, then hands
-  off through a versioned `boot_info`
-- the kernel runs at `0xFFFFFFFF80000000`, reports E820/framebuffer/initrd over
-  COM1, and draws the Zenku/Thunder splash
-
-Phase 3 adds serial RX, PS/2 keyboard/mouse, the framebuffer console, and the
-desktop skeleton.
-
-The full 9-phase plan is in [`docs/PLAN.md`](docs/PLAN.md). The current boot
-media contract is documented in [`docs/boot-protocol.md`](docs/boot-protocol.md).
-
-## Progress
-
-| Phase | Scope | Status |
+| Region | Virtual address | Purpose |
 |---|---|---|
-| 0 | Build system, stage1, ISO, serial test harness | **Complete** |
-| 1 | Stage1→stage2→stage3, E820/VBE/ISO9660, ext2+ELF64, long mode, higher-half kernel | **Complete** |
-| 2 | GDT/TSS/IDT, exceptions, PIC/PIT, PMM/VMM/heap | **Complete** |
-| 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | **Complete** |
-| 4 | VFS, ext2 mount, ring 3, core syscalls | **Complete** |
-| 5 | Scheduler, COW fork, exec/wait, libc, shell, coreutils | **In progress** |
-| 6 | Graphical desktop, terminal window, mouse UI | Pending |
-| 7 | UEFI loader and dual-boot ISO | Pending |
-| 8 | SYSCALL fast path, SMEP/SMAP/NX, hardening, release | Pending |
+| User space | `0x0000000000400000` | ELF images and user stacks |
+| Direct map | `0xFFFF800000000000` | 4 GiB physical memory window |
+| Kernel image | `0xFFFFFFFF80000000` | Kernel text, data, and BSS |
+| Kernel heap | `0xFFFFFFFFA0000000` | 16 MiB general-purpose heap |
 
-## Requirements
+## Getting started
 
-Build essentials:
+### Requirements
 
-| Tool | Purpose | This machine |
-|---|---|---|
-| `nasm` | stage1/stage2 assembly | 3.02 |
-| `xorriso` | ISO creation | 1.5.8 |
-| `qemu-system-x86_64` | run/test | 11.1.3 |
-| `mke2fs` (`e2fsprogs`) | ext2 root image (Phase 4) | 1.47.4 |
-| host `gcc`/`clang`, `ld` | C fallback toolchain | gcc 16.2 |
-| `make`, `bash`, `coreutils` | build | present |
+A Linux host with a C compiler and binutils, plus:
 
-Optional real cross toolchain:
+| Tool | Purpose |
+|---|---|
+| `nasm` | Bootloader and kernel assembly |
+| `xorriso` | ISO image creation |
+| `mke2fs` / `e2fsprogs` | Root filesystem image |
+| `qemu-system-x86_64` | Emulation and integration tests |
+| `make`, `bash`, coreutils | Build and test scripts |
+
+A real `x86_64-elf` cross toolchain is optional. The build falls back to the
+host compiler with freestanding flags.
 
 ```sh
-make toolchain                 # installs into ~/.local/cross
-source ~/.local/cross/env.sh   # puts x86_64-elf-* on PATH
+make toolchain                 # optional: install to ~/.local/cross
+source ~/.local/cross/env.sh   # put x86_64-elf-* on PATH
 ```
 
-Prerequisites for the cross build are listed by the script; on Fedora:
+### Build and run
 
 ```sh
-sudo dnf install gmp-devel mpfr-devel libmpc-devel bison flex texinfo
+cd /home/xen/projects/zenku
+make          # build build/os.iso
+make run      # boot in a graphical QEMU window, serial on stdio
+make debug    # boot with a QEMU GDB stub (-s -S)
 ```
 
-## Build and run
+`make run` uses 2 GiB of RAM and mirrors kernel diagnostics to the terminal
+over COM1.
+
+### Tests
 
 ```sh
-make                 # builds build/os.iso
-make run             # qemu-system-x86_64 -cdrom build/os.iso -m 2G -serial stdio
-make test            # headless boot; checks serial output and exit status
-make test-faults     # inject #DE/#UD/#GP/#PF and check the panic path
-make test-input      # boot, type 'help' via PS/2, check the console
-make test-serial     # type 'help' over COM1 IRQ4, check the console
-make test-fs         # list, cat, and stat files on the ext2 rootfs
-make test-user       # run /init in ring 3, check syscalls and exit
-make test-proc       # fork/exec/wait, pipe inheritance, timer preemption
-make test-sh         # /bin/sh builtins, external commands, and exit
-make check           # fast syntax check of C/asm/shell/python sources
-make check-link      # syntax check plus stage3 and kernel link checks
-make layout          # validate the boot image layout
-make doctor          # toolchain/tool discovery
+make test         # headless boot and serial assertions
+make test-faults  # inject #DE/#UD/#GP/#PF and verify panic handling
+make test-input   # PS/2 keyboard and mouse path
+make test-serial  # COM1 receive over IRQ4
+make test-fs      # ext2, VFS, and devfs
+make test-user    # ring-3 entry, syscalls, and user copies
+make test-proc    # fork, exec, wait, pipes, preemption, COW
+make test-sh      # shell builtins, coreutils, and pipelines
+make check        # fast C/assembly/shell/Python syntax checks
+make check-link   # syntax checks plus stage3 and kernel link checks
+make layout       # validate the boot image layout
+make doctor       # report toolchain and dependency status
 ```
 
-`make run` uses a graphical QEMU window and mirrors all diagnostics to the
-terminal over COM1. `make test` builds a variant that exits QEMU through
-`isa-debug-exit` after the banner.
+## Using Zenku
 
-Expected serial output:
+The kernel console accepts `help`, `fetch`, `mem`, `ticks`, `uptime`,
+`version`, `clear`, `colors`, `ls`, `cat`, `stat`, `devtest`, `init`, `sh`,
+and `ps`.
 
-```
-ZENKU STAGE1 OK
-boot drive: 0xE0
-ZENKU STAGE2 OK
-stage2: e820 entries 0x00000007
-stage2: font copied
-stage2: ISO9660 mounted
-stage2: STAGE3.BIN lba 0x00004026 size 0x00002581
-stage2: stage3 loaded at 0x20000
-stage2: ROOT.EXT2 lba 0x00000026 size 0x02000000
-stage2: ROOT.EXT2 loaded at 0x04000000
-stage2: VBE mode 0x00000400x00000300 bpp 0x00000020
-ZENKU STAGE3 OK
-stage3: ext2 1024-byte blocks, 4 groups, 8192 inodes
-stage3: kernel inode 13, 57184 bytes
-stage3: segment phys 0x200000..0x206250 (filesz 0x2211)
-stage3: kernel phys 0x200000 size 0x6250 entry 0xffffffff80200000
-stage3: paging ready (physmap 0xffff800000000000, kernel 0xffffffff80000000)
-stage3: jumping to kernel
-ZENKU KERNEL OK
-kernel: Zenku 0.0.1 (Thunder), 64-bit higher half
-kernel: e820 7 entries, usable 2047 MiB
-kernel: framebuffer 1024x768 32bpp pitch 4096 at 0xfd000000
-pmm: 2047 usable MiB, 1048576 frames tracked, 515743 free (2014 MiB)
-vmm: page tables at 0x1000, 4 KiB mappings ready
-heap: 16 MiB mapped at 0xffffffffa0000000 (16383 KiB usable)
-kernel: memory managers ready
-pmm: selftest 10000 alloc/free frames, no leaks
-vmm: selftest map/translate/unmap ok
-heap: selftest 512 alloc/free blocks, no leaks
-kernel: framebuffer banner drawn
-kernel: gdt loaded, tss rsp0 0xffffffff80240600, double-fault IST ready
-kernel: idt 256 vectors, pic remapped to 0x20/0x28
-kernel: pit configured at 100 Hz
-kernel: enabling interrupts
-kernel: timer running (11 ticks)
-Zenku 0.0.1 (Thunder) - higher-half kernel
-memory managers online, PS/2 keyboard ready
-type 'help' for commands
+`sh` starts the userland shell. It supports `exit`, `help`, and `pwd`
+builtins, external programs in `/bin`, and pipelines of up to four stages:
 
-zenku> desktop: terminal ready (113x36 cells)
-kernel: ALL TESTS PASSED
-kernel: entering idle loop
+```text
+sh> ls /
+sh> cat /hello.txt
+sh> echo hello from user space | wc
+sh> ps
 ```
 
-## Layout
+The root filesystem is intentionally read-only; writes are rejected by the
+VFS and ext2 layer.
+
+## Repository layout
 
 ```
-boot/stage1/       Stage1 assembly (El Torito boot image)
-boot/stage2/       BIOS/E820/VBE/ISO9660 stage
-boot/stage3/       64-bit C ext2 + ELF64 loader (shared with the kernel tree)
-kernel/            Higher-half kernel (Phase 1+)
-drivers/           Serial, PS/2, framebuffer, tty, RTC
-fs/                VFS, ext2, devfs, pipes
-libc/              Freestanding user-space C library
-user/              init, shell, coreutils
-include/           Shared headers, boot ABI, syscall ABI
-linker/            Kernel, stage3, and user linker scripts
-scripts/           Toolchain, rootfs, ISO, tests, layout checks
-tests/             Host and QEMU integration tests
-docs/              Architecture, boot protocol, ABI, plan
+boot/       stage1, stage2, and stage3 boot chain
+kernel/     higher-half kernel: arch, memory, filesystem, scheduler, syscalls
+drivers/    PIC, PIT, PS/2, mouse, and serial drivers
+fs/         shared ext2 implementation used by stage3 and the kernel
+libc/       freestanding user-space ABI and headers
+user/       crt0, init, shell, and coreutils
+docs/       plan, boot protocol, and screenshots
+linker/     kernel, stage3, and user linker scripts
+scripts/    build, image, rootfs, and test tooling
+tests/      host and QEMU integration test sources
 ```
 
-## Design rules
+## Documentation
 
-1. Every stage validates its inputs and fails with a diagnostic, never a
-   silent triple fault.
-2. The bootloader and kernel share one documented `boot_info` ABI.
-3. Kernel code is `-mcmodel=kernel`, `-mno-red-zone`, and built without libc
-   or libgcc.
-4. The build must work with the host compiler and with `x86_64-elf-gcc`.
-5. Each phase ends with a bootable ISO and a passing test.
+- [`docs/PLAN.md`](docs/PLAN.md) — architecture, phase plan, and design notes
+- [`docs/boot-protocol.md`](docs/boot-protocol.md) — boot media and `boot_info` ABI
+
+## Contributing
+
+Issues and pull requests are welcome. Before submitting a change:
+
+```sh
+make check
+make check-link
+make test
+```
+
+Keep patches focused, match the surrounding C style, and update the relevant
+documentation when behavior changes.
 
 ## License
 
