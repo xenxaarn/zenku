@@ -38,6 +38,7 @@ typedef long off_t;
 #define SYS_getprocs 79
 #define SYS_sleep  80
 #define SYS_getticks 81
+#define SYS_clear  82
 #define SYS_getppid 110
 
 #define ZP_FREE   0
@@ -155,6 +156,11 @@ static inline long sys_sleep_ms(unsigned long ms)
 static inline unsigned long sys_getticks(void)
 {
     return (unsigned long)syscall1(SYS_getticks, 0);
+}
+
+static inline long sys_clear(void)
+{
+    return syscall1(SYS_clear, 0);
 }
 
 static inline long sys_yield(void)

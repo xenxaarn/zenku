@@ -49,6 +49,8 @@ check "hello from the Zenku root filesystem"
 check "echo"
 check "kill"
 check "sleep"
+check "head"
+check "clear"
 
 # Timer preemption must let child B run while child A is still spinning.
 b_line=$(grep -n "preempt: child B ran" "$LOG" | head -1 | cut -d: -f1)

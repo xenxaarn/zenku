@@ -279,6 +279,10 @@ void syscall_dispatch(struct regs *r)
     case SYS_getticks:
         ret = (int64_t)pit_ticks();
         break;
+    case SYS_clear:
+        console_clear();
+        ret = 0;
+        break;
     case SYS_yield:
         process_yield(r);
         return;

@@ -582,7 +582,7 @@ zenku/
 * `Makefile` sets `CROSS ?= $(shell command -v x86_64-elf-gcc >/dev/null 2>&1 && echo x86_64-elf- || true)`.
 * If `CROSS` is empty, it builds with host `gcc`/`clang` using strict
   freestanding flags. Both paths are tested by `make test`, so the repository
-  works on this machine immediately and on a proper cross setup later.
+  works on the host immediately and on a proper cross setup later.
 
 ### 5.2 Compiler/linker flags (kernel)
 
@@ -787,9 +787,9 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
 * [x] Shared `crt0`, user ABI header; `init`, `echo`.
 * [ ] Tiny libc + `sh`, `ls`, `cat`, `pwd`, `ps`, `kill`, `sleep`, `uname`,
   `clear`, `wc`, `head`.
-  **Partial:** `sh`, `ls`, `cat`, `wc`, `ps`, `sleep`, `kill`, and `uname`
-  exist; the shell has `exit`/`help`/`pwd` builtins. `clear`, `head`, and a
-  shared libc are still open.
+  **Partial:** `sh`, `ls`, `cat`, `wc`, `head`, `ps`, `sleep`, `kill`,
+  `clear`, and `uname` exist; the shell has `exit`/`help`/`pwd` builtins. A
+  shared libc and a standalone `pwd` binary remain open.
 * [ ] Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
   **Partial:** external exec through `/bin`, line editing, blocking console
   reads, and up to four-stage pipelines (`pipe` + `dup2`) work; redirection is
