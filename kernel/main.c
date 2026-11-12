@@ -11,6 +11,7 @@
 #include <kpanic.h>
 #include <mm/heap.h>
 #include <mm/pmm.h>
+#include <vfs.h>
 #include <mm/vmm.h>
 #include <mouse.h>
 #include <pic.h>
@@ -138,6 +139,12 @@ void kmain(struct boot_info *bi)
     pmm_selftest();
     vmm_selftest();
     heap_selftest();
+
+    if (vfs_init(bi->initrd_addr, bi->initrd_size) != 0) {
+        kprintf("kernel: root filesystem unavailable\n");
+    } else {
+        kprintf("kernel: root filesystem ready\n");
+    }
 
     if (bi->flags & BOOT_FLAG_FB) {
         kprintf("kernel: framebuffer %ux%u %ubpp pitch %u at 0x%llx\n",

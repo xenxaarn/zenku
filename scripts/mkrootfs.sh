@@ -26,11 +26,24 @@ cleanup() {
 trap cleanup EXIT
 
 cp "$KERNEL" "$STAGE/kernel"
+mkdir -p "$STAGE/etc"
 cat > "$STAGE/README" <<'EOF'
 Zenku root filesystem.
 
 Read-only ext2 image built by scripts/mkrootfs.sh.
 /kernel is the Thunder kernel ELF image.
+EOF
+cat > "$STAGE/etc/motd" <<'EOF'
+Welcome to Zenku.
+
+This root filesystem is a read-only ext2 image loaded by the bootloader.
+Phase 4 mounts it in the kernel; user space comes next.
+EOF
+cat > "$STAGE/etc/hostname" <<'EOF'
+zenku
+EOF
+cat > "$STAGE/hello.txt" <<'EOF'
+hello from the Zenku root filesystem
 EOF
 
 mkdir -p "$(dirname "$OUT")"

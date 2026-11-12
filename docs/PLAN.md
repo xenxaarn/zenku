@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 3 complete; Phase 4 next
+**Status:** Phase 4 in progress (VFS/ext2 done)
 **Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
 **Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
@@ -746,9 +746,11 @@ and observe echoed output.
 IRQ4), mouse move/click focus, scrollback, ANSI SGR, and `fetch`. Cursor
 addressing is deferred polish.
 
-### Phase 4 — VFS, ext2, ring 3, core syscalls (≈3 sessions)
+### Phase 4 — VFS, ext2, ring 3, core syscalls (≈3 sessions) — IN PROGRESS
 
 * VFS + path resolution + fd table + ramdisk block device + ext2 read-only.
+  **Done:** ramdisk, ext2 mount shared with stage3, path lookup, inode stat,
+  whole-file read, directory iteration, and `ls`/`cat`/`stat`. Open: fd table.
 * Devfs (`console`, `tty0`, `ttyS0`, `null`, `zero`), pipefs.
 * ELF loader in kernel, user address spaces, TSS/RSP0, ring-3 entry.
 * `int 0x80` dispatch, usercopy with fixups, syscalls: `open`, `read`, `write`,

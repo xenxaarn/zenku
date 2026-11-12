@@ -16,6 +16,7 @@ KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
                 kernel/arch/x86_64/gdt.c kernel/arch/x86_64/idt.c \
                 kernel/arch/x86_64/irq.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
+                kernel/fs/ramdisk.c kernel/fs/vfs.c fs/ext2.c \
                 drivers/pic.c drivers/pit.c drivers/ps2.c drivers/mouse.c drivers/serial.c \
                 lib/string.c lib/kio.c
 KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
@@ -43,7 +44,7 @@ KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
 KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
                     $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
 
-.PHONY: all iso run debug test test-input test-serial check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
+.PHONY: all iso run debug test test-input test-serial test-fs check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
 
 all: iso
 
@@ -203,6 +204,9 @@ test-input: $(ISO)
 test-serial: $(ISO)
 	QEMU=$(QEMU) scripts/run-serial-test.sh $(ISO)
 
+test-fs: $(ISO)
+	QEMU=$(QEMU) scripts/run-fs-test.sh $(ISO)
+
 check:
 	scripts/syntax-check.sh
 
@@ -261,6 +265,7 @@ help:
 	@echo "  test       headless boot + serial assertions"
 	@echo "  test-input boot, type help via PS/2, check the console"
 	@echo "  test-serial type help over COM1 IRQ4, check the console"
+	@echo "  test-fs    mount ext2, then ls/cat/stat over COM1"
 	@echo "  test-faults inject #DE/#UD/#GP/#PF and check panics"
 	@echo "  check      fast syntax check of C/asm/shell/python"
 	@echo "  check-link syntax check plus stage3 and kernel links"

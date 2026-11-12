@@ -7,9 +7,21 @@ contains the bootloader, the kernel, and a read-only ext2 root filesystem.
 
 The kernel codename is **Thunder**.
 
-## Status: Phase 3 (in progress)
+## Status: Phase 4 (in progress)
 
-Phase 3 has started with the interactive path:
+Phase 4 has started with the filesystem path:
+
+- ramdisk block device over the initrd (512-byte blocks, direct map)
+- ext2 read-only mount in the kernel, sharing `fs/ext2.c` with stage3
+- VFS layer: path resolution, inode stat, whole-file read, directory walk
+- kernel commands: `ls`, `cat <path>`, `stat <path>`
+- demo rootfs content: `/README`, `/etc/motd`, `/etc/hostname`, `/hello.txt`
+- `make test-fs` lists, cats, and stats files over COM1
+
+Still to come in Phase 4: devfs/pipefs, ELF loader, ring 3, and the first
+syscalls.
+
+Phase 3 completed the interactive path:
 
 - PS/2 controller and keyboard (IRQ1), US layout, shift/ctrl/alt/caps, and
   extended arrow/navigation keys
@@ -74,8 +86,8 @@ media contract is documented in [`docs/boot-protocol.md`](docs/boot-protocol.md)
 | 0 | Build system, stage1, ISO, serial test harness | **Complete** |
 | 1 | Stage1→stage2→stage3, E820/VBE/ISO9660, ext2+ELF64, long mode, higher-half kernel | **Complete** |
 | 2 | GDT/TSS/IDT, exceptions, PIC/PIT, PMM/VMM/heap | **Complete** |
-| 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | **In progress** |
-| 4 | VFS, ext2 mount, ring 3, core syscalls | Pending |
+| 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | **Complete** |
+| 4 | VFS, ext2 mount, ring 3, core syscalls | **In progress** |
 | 5 | Scheduler, COW fork, exec/wait, libc, shell, coreutils | Pending |
 | 6 | Graphical desktop, terminal window, mouse UI | Pending |
 | 7 | UEFI loader and dual-boot ISO | Pending |
@@ -116,6 +128,7 @@ make test            # headless boot; checks serial output and exit status
 make test-faults     # inject #DE/#UD/#GP/#PF and check the panic path
 make test-input      # boot, type 'help' via PS/2, check the console
 make test-serial     # type 'help' over COM1 IRQ4, check the console
+make test-fs         # list, cat, and stat files on the ext2 rootfs
 make check           # fast syntax check of C/asm/shell/python sources
 make check-link      # syntax check plus stage3 and kernel link checks
 make layout          # validate the boot image layout

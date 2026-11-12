@@ -1,4 +1,5 @@
 #include <console.h>
+#include <ext2.h>
 #include <fb.h>
 #include <kio.h>
 #include <mm/pmm.h>
@@ -9,6 +10,7 @@
 #include <tty.h>
 #include <types.h>
 #include <version.h>
+#include <vfs.h>
 
 #define CELL_WIDTH  8
 #define CELL_HEIGHT 16
@@ -499,6 +501,142 @@ static void command_fetch(void)
     console_putc('\n');
 }
 
+static void put_hex(uint64_t value)
+{
+    static const char digits[] = "0123456789abcdef";
+    char buf[17];
+    int count = 0;
+
+    if (value == 0) {
+        console_putc('0');
+        return;
+    }
+    while (value && count < 16) {
+        buf[count++] = digits[value & 0xF];
+        value >>= 4;
+    }
+    while (count) {
+        console_putc(buf[--count]);
+    }
+}
+
+static const char *skip_spaces(const char *s)
+{
+    while (*s == ' ') {
+        s++;
+    }
+    return s;
+}
+
+struct ls_state {
+    int column;
+    bool any;
+};
+
+static int ls_entry(const char *name, uint32_t name_len, uint32_t ino,
+                    uint8_t type, void *ctx)
+{
+    struct ls_state *state = ctx;
+    int width = (int)name_len;
+
+    (void)ino;
+    if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+        return 0;
+    }
+
+    g_fg = (type == EXT2_FT_DIR) ? COLOR_ACCENT : COLOR_FG;
+    console_puts(name);
+    if (type == EXT2_FT_DIR) {
+        console_putc('/');
+        width++;
+    }
+    while (width < 20) {
+        console_putc(' ');
+        width++;
+    }
+
+    state->any = true;
+    state->column += 20;
+    if (state->column + 20 > g_cols) {
+        console_putc('\n');
+        state->column = 0;
+    }
+    return 0;
+}
+
+static void command_ls(const char *path)
+{
+    struct ls_state state = { 0, false };
+
+    if (vfs_list(path, ls_entry, &state) != 0) {
+        g_fg = COLOR_ERROR;
+        console_puts("ls: cannot list ");
+        console_puts(path);
+        console_putc('\n');
+        g_fg = COLOR_FG;
+        return;
+    }
+    if (!state.any) {
+        console_puts("(empty)\n");
+    } else if (state.column != 0) {
+        console_putc('\n');
+    }
+    g_fg = COLOR_FG;
+}
+
+static char g_cat_buf[4096 + 1];
+
+static void command_cat(const char *path)
+{
+    int64_t length = vfs_read_file(path, g_cat_buf, 4096);
+
+    if (length < 0) {
+        g_fg = COLOR_ERROR;
+        console_puts("cat: cannot read ");
+        console_puts(path);
+        console_putc('\n');
+        g_fg = COLOR_FG;
+        return;
+    }
+
+    g_cat_buf[length] = '\0';
+    console_puts(g_cat_buf);
+    if (length == 0 || g_cat_buf[length - 1] != '\n') {
+        console_putc('\n');
+    }
+}
+
+static void command_stat(const char *path)
+{
+    struct ext2_inode inode;
+    uint32_t ino;
+
+    if (vfs_stat(path, &ino, &inode) != 0) {
+        g_fg = COLOR_ERROR;
+        console_puts("stat: cannot stat ");
+        console_puts(path);
+        console_putc('\n');
+        g_fg = COLOR_FG;
+        return;
+    }
+
+    console_puts("inode  ");
+    put_uint(ino);
+    console_putc('\n');
+    console_puts("type   ");
+    console_puts(ext2_is_dir(&inode) ? "directory" :
+                 ext2_is_file(&inode) ? "regular file" : "other");
+    console_putc('\n');
+    console_puts("size   ");
+    put_uint(inode.size);
+    console_puts(" bytes\n");
+    console_puts("mode   0x");
+    put_hex(inode.mode);
+    console_puts("\nlinks  ");
+    put_uint(inode.links_count);
+    console_putc('\n');
+}
+
 static void command_run(void)
 {
     g_line[g_line_len] = '\0';
@@ -510,10 +648,35 @@ static void command_run(void)
     }
 
     if (strcmp(g_line, "help") == 0) {
-        console_puts("commands: help, fetch, colors, mem, ticks, uptime, "
-                     "version, clear\n");
+        console_puts("commands: help, fetch, colors, ls, cat, stat, mem, ticks, "
+                     "uptime, version, clear\n");
     } else if (strcmp(g_line, "fetch") == 0) {
         command_fetch();
+    } else if (strncmp(g_line, "ls", 2) == 0 &&
+               (g_line[2] == '\0' || g_line[2] == ' ')) {
+        const char *path = skip_spaces(g_line + 2);
+
+        if (vfs_ready()) {
+            command_ls(*path ? path : "/");
+        } else {
+            console_puts("ls: root filesystem not mounted\n");
+        }
+    } else if (strncmp(g_line, "cat ", 4) == 0) {
+        const char *path = skip_spaces(g_line + 4);
+
+        if (!*path) {
+            console_puts("usage: cat <path>\n");
+        } else {
+            command_cat(path);
+        }
+    } else if (strncmp(g_line, "stat ", 5) == 0) {
+        const char *path = skip_spaces(g_line + 5);
+
+        if (!*path) {
+            console_puts("usage: stat <path>\n");
+        } else {
+            command_stat(path);
+        }
     } else if (strcmp(g_line, "colors") == 0) {
         console_puts("\x1b[31mred \x1b[32mgreen \x1b[33myellow "
                      "\x1b[34mblue \x1b[35mmagenta \x1b[36mcyan "

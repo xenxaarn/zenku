@@ -28,6 +28,16 @@
 
 #define EXT2_ROOT_INO 2
 
+/* Directory entry file types (when the FILETYPE feature is present). */
+#define EXT2_FT_UNKNOWN  0
+#define EXT2_FT_REG_FILE 1
+#define EXT2_FT_DIR      2
+#define EXT2_FT_CHRDEV   3
+#define EXT2_FT_BLKDEV   4
+#define EXT2_FT_FIFO     5
+#define EXT2_FT_SOCK     6
+#define EXT2_FT_SYMLINK  7
+
 struct ext2_inode {
     uint16_t mode;
     uint16_t uid;
@@ -90,6 +100,15 @@ int ext2_read_inode(struct ext2_fs *fs, uint32_t ino, struct ext2_inode *out);
 /* Resolve an absolute path ("/kernel" or "/boot/kernel"). Returns 0 on
  * success and stores the inode number in `ino_out`. */
 int ext2_lookup(struct ext2_fs *fs, const char *path, uint32_t *ino_out);
+
+/*
+ * Visit every entry in a directory. The callback returns 0 to continue or
+ * non-zero to stop; that value is returned from ext2_iterate.
+ */
+typedef int (*ext2_dir_cb)(const char *name, uint32_t name_len,
+                           uint32_t ino, uint8_t type, void *ctx);
+int ext2_iterate(struct ext2_fs *fs, uint32_t dir_ino, ext2_dir_cb cb,
+                 void *ctx);
 
 /* Read bytes from an inode. Returns the number of bytes copied (which may be
  * less than `len` at end of file), or a negative value on error. */

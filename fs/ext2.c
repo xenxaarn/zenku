@@ -348,6 +348,61 @@ static int dir_lookup(struct ext2_fs *fs, uint32_t dir_ino, const char *name,
     return -1;
 }
 
+int ext2_iterate(struct ext2_fs *fs, uint32_t dir_ino, ext2_dir_cb cb,
+                 void *ctx)
+{
+    struct ext2_inode dir;
+    uint64_t size;
+
+    if (!cb || ext2_read_inode(fs, dir_ino, &dir) != 0 || !ext2_is_dir(&dir)) {
+        return -1;
+    }
+
+    size = ext2_inode_size(fs, &dir);
+    for (uint64_t offset = 0; offset < size; offset += fs->block_size) {
+        uint32_t physical;
+        uint32_t pos = 0;
+
+        if (ext2_bmap(fs, &dir, offset / fs->block_size, &physical) != 0) {
+            return -1;
+        }
+        if (physical == 0) {
+            continue;
+        }
+        if (read_fs_block(fs, physical, fs->data_buf) != 0) {
+            return -1;
+        }
+
+        while (pos + 8 <= fs->block_size) {
+            const uint8_t *rec = fs->data_buf + pos;
+            uint32_t ino = le32(rec);
+            uint16_t rec_len = le16(rec + 4);
+            uint8_t name_len = rec[6];
+            uint8_t type = rec[7];
+
+            if (rec_len < 8 || pos + rec_len > fs->block_size) {
+                break;
+            }
+            if (ino != 0 && name_len > 0 && name_len < 256 &&
+                8 + name_len <= rec_len) {
+                char name[256];
+                int rc;
+
+                memcpy(name, rec + 8, name_len);
+                name[name_len] = '\0';
+
+                rc = cb(name, name_len, ino, type, ctx);
+                if (rc != 0) {
+                    return rc;
+                }
+            }
+            pos += rec_len;
+        }
+    }
+
+    return 0;
+}
+
 int ext2_lookup(struct ext2_fs *fs, const char *path, uint32_t *ino_out)
 {
     uint32_t ino = EXT2_ROOT_INO;
