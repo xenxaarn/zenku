@@ -42,6 +42,7 @@ USER_UNAME_ELF  := $(BUILD)/user/uname.elf
 USER_LS_ELF     := $(BUILD)/user/ls.elf
 USER_WC_ELF     := $(BUILD)/user/wc.elf
 USER_PS_ELF     := $(BUILD)/user/ps.elf
+USER_SLEEP_ELF  := $(BUILD)/user/sleep.elf
 USER_BIN_DIR    := $(BUILD)/user/bin
 ROOTFS          := $(BUILD)/rootfs.ext2
 ROOTFS_TEST     := $(BUILD)/test/rootfs.ext2
@@ -227,9 +228,14 @@ $(USER_PS_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/p
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
 		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/ps.o
 
+$(USER_SLEEP_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/sleep.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/sleep.o
+
 $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
            $(USER_CAT_ELF) $(USER_UNAME_ELF) $(USER_LS_ELF) $(USER_WC_ELF) \
-           $(USER_PS_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
+           $(USER_PS_ELF) $(USER_SLEEP_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
 	@mkdir -p $(USER_BIN_DIR)
 	cp $(USER_ECHO_ELF) $(USER_BIN_DIR)/echo
 	cp $(USER_SH_ELF) $(USER_BIN_DIR)/sh
@@ -238,6 +244,7 @@ $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
 	cp $(USER_LS_ELF) $(USER_BIN_DIR)/ls
 	cp $(USER_WC_ELF) $(USER_BIN_DIR)/wc
 	cp $(USER_PS_ELF) $(USER_BIN_DIR)/ps
+	cp $(USER_SLEEP_ELF) $(USER_BIN_DIR)/sleep
 	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 32 $(USER_INIT_ELF) $(USER_BIN_DIR)
 
 $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs

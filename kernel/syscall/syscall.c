@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <kio.h>
 #include <mm/vmm.h>
+#include <pit.h>
 #include <process.h>
 #include <string.h>
 #include <syscall.h>
@@ -263,6 +264,12 @@ void syscall_dispatch(struct regs *r)
         break;
     case SYS_getprocs:
         ret = sys_getprocs(r->rdi, (int)r->rsi);
+        break;
+    case SYS_sleep:
+        process_sleep(r, r->rdi);
+        return;
+    case SYS_getticks:
+        ret = (int64_t)pit_ticks();
         break;
     case SYS_yield:
         process_yield(r);

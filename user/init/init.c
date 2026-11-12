@@ -327,6 +327,21 @@ int main(long argc, char **argv)
         }
     }
 
+    {
+        unsigned long before = sys_getticks();
+        unsigned long after;
+
+        sys_sleep_ms(100);
+        after = sys_getticks();
+        if (after > before && after - before >= 5) {
+            print("sleep: timer wake ok\n");
+        } else {
+            print("sleep: timer wake FAILED ");
+            print_uint(after - before);
+            print("\n");
+        }
+    }
+
     print("init: exiting with status 0\n");
     return 0;
 }

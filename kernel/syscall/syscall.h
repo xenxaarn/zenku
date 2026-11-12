@@ -23,6 +23,8 @@
 #define SYS_wait4  61
 #define SYS_readdir 78
 #define SYS_getprocs 79
+#define SYS_sleep  80
+#define SYS_getticks 81
 #define SYS_getppid 110
 
 void syscall_dispatch(struct regs *r);

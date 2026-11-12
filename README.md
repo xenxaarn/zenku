@@ -39,7 +39,8 @@ repository. The result boots from a single `build/os.iso` image.
 - **Processes** — per-process page tables and 16 KiB kernel stacks, copy-on-write
   `fork`, `execve`, blocking `wait4`, and 100 Hz round-robin preemption.
 - **Userland** — a freestanding ABI header, shared `crt0`, `/init`, `/bin/sh`
-  with multi-stage pipelines, and `ls`, `cat`, `wc`, `ps`, `uname`, and `echo`.
+  with multi-stage pipelines, and `ls`, `cat`, `wc`, `ps`, `sleep`, `uname`,
+  and `echo`.
 - **Automated verification** — serial/PS2/QEMU integration tests for the boot
   chain, memory, filesystem, syscalls, scheduler, shell, and fault paths.
 
@@ -95,7 +96,6 @@ source ~/.local/cross/env.sh   # put x86_64-elf-* on PATH
 ### Build and run
 
 ```sh
-cd /home/xen/projects/zenku
 make          # build build/os.iso
 make run      # boot in a graphical QEMU window, serial on stdio
 make debug    # boot with a QEMU GDB stub (-s -S)
@@ -134,6 +134,7 @@ builtins, external programs in `/bin`, and pipelines of up to four stages:
 sh> ls /
 sh> cat /hello.txt
 sh> echo hello from user space | wc
+sh> sleep 1
 sh> ps
 ```
 

@@ -33,6 +33,7 @@ struct process {
     int wait_pid;
     uint64_t wait_status_ptr;
     bool block_io;
+    uint64_t sleep_until;
     uint64_t pml4_phys;
     uint8_t *kstack;
     uint64_t kstack_top;
@@ -61,6 +62,9 @@ void process_tick(struct regs *frame);
  * retried when process_wake_io() marks it runnable again. */
 void process_block_io(struct regs *frame);
 void process_wake_io(void);
+
+/* Sleep for `ms` milliseconds; the syscall frame resumes after the call. */
+void process_sleep(struct regs *frame, uint64_t ms);
 
 int process_getpid(void);
 int process_getppid(void);

@@ -8,6 +8,7 @@
 #include <mm/heap.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include <pit.h>
 #include <string.h>
 #include <types.h>
 #include <loader.h>
@@ -252,6 +253,31 @@ static bool has_io_waiters(void)
     return false;
 }
 
+static bool has_sleep_waiters(void)
+{
+    for (int i = 0; i < PROCESS_MAX; i++) {
+        if (g_procs[i].state == PROC_BLOCKED && g_procs[i].sleep_until) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void process_wake_sleepers(void)
+{
+    uint64_t now = pit_ticks();
+
+    for (int i = 0; i < PROCESS_MAX; i++) {
+        struct process *p = &g_procs[i];
+
+        if (p->state == PROC_BLOCKED && p->sleep_until &&
+            now >= p->sleep_until) {
+            p->sleep_until = 0;
+            p->state = PROC_READY;
+        }
+    }
+}
+
 /* Save the current frame, choose a runnable process, and overwrite *frame
  * with its saved register set. Returning to isr.asm's epilogue then iretq's
  * into the new process. */
@@ -269,13 +295,15 @@ static void process_schedule(struct regs *frame)
         prev->regs = *frame;
     }
 
+    process_wake_sleepers();
     next = pick_next();
 
     /* Every runnable process is gone, but somebody is blocked on terminal
-     * input. Keep the machine interactive (mouse, keyboard, serial) until
-     * input or a timer event wakes one of them. */
-    while (!next && has_io_waiters()) {
+     * input or a timer. Keep the machine interactive (mouse, keyboard,
+     * serial) and wake sleepers when their deadline arrives. */
+    while (!next && (has_io_waiters() || has_sleep_waiters())) {
         idle_poll();
+        process_wake_sleepers();
         next = pick_next();
     }
 
@@ -596,6 +624,33 @@ void process_wake_io(void)
             p->state = PROC_READY;
         }
     }
+}
+
+void process_sleep(struct regs *frame, uint64_t ms)
+{
+    struct process *p = g_current;
+    uint64_t hz = pit_frequency();
+    uint64_t ticks;
+
+    if (!p || !frame) {
+        return;
+    }
+    frame->rax = 0;
+    if (ms == 0) {
+        process_yield(frame);
+        return;
+    }
+
+    ticks = (ms * hz + 999) / 1000;
+    if (ticks == 0) {
+        ticks = 1;
+    }
+    p->block_io = false;
+    p->sleep_until = pit_ticks() + ticks;
+    p->state = PROC_BLOCKED;
+    /* The saved frame already points after int 0x80, so the process resumes
+     * normally when the timer wakes it. */
+    process_schedule(frame);
 }
 
 void process_tick(struct regs *frame)

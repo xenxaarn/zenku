@@ -35,6 +35,8 @@ typedef long off_t;
 #define SYS_wait4   61
 #define SYS_readdir 78
 #define SYS_getprocs 79
+#define SYS_sleep  80
+#define SYS_getticks 81
 #define SYS_getppid 110
 
 #define ZP_FREE   0
@@ -142,6 +144,16 @@ static inline long sys_readdir(const char *path, unsigned int index,
 static inline long sys_getprocs(struct zenku_procinfo *out, int max)
 {
     return syscall3(SYS_getprocs, (long)out, max, 0);
+}
+
+static inline long sys_sleep_ms(unsigned long ms)
+{
+    return syscall1(SYS_sleep, (long)ms);
+}
+
+static inline unsigned long sys_getticks(void)
+{
+    return (unsigned long)syscall1(SYS_getticks, 0);
 }
 
 static inline long sys_yield(void)

@@ -1,8 +1,8 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
 **Status:** Phase 5 in progress (scheduler, fork/exec/wait, interactive shell)
-**Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
-**Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
+**Repository:** self-contained; all sources, build scripts, and documentation live here.
+**Plan file:** this document is the canonical project plan.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
 **Default name:** `Zenku`, kernel codename `Thunder` (branding centralized in `include/version.h`)
 
@@ -37,7 +37,7 @@ Honest effort estimate: **9 phases, roughly 20–25 focused work sessions**.
 
 ## 2. Name
 
-The project is **Zenku** (repository `projects/zenku`), kernel codename
+The project is **Zenku**, kernel codename
 **Thunder**. The alternatives below remain on record in case of a future rename;
 branding is centralized in `include/version.h`.
 
@@ -682,9 +682,8 @@ Delivered: 2 KiB El Torito stage1, COM1 banner, BIOS output, `xorriso` ISO,
 host-toolchain fallback, `make test` with deterministic `isa-debug-exit`
 status 33, layout validation, and the cross-toolchain bootstrap script.
 
-1. Back up the existing directory (including `.git` history) to
-   `/tmp/opencode/zenku-backup-<timestamp>.tar.gz`.
-2. Delete all contents of `/home/xen/projects/zenku`.
+1. Back up any existing working tree, including its `.git` history.
+2. Start from an empty working directory.
 3. `git init`, commit empty skeleton, add `.gitignore`, README, license,
    `config.mk`, root Makefile.
 4. Add `scripts/toolchain.sh`, host-fallback detection, `scripts/mkiso.sh`.
@@ -782,14 +781,14 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
   idle path.
 * [x] Eager-copy `fork`, `execve` with argv, blocking `wait4`, orphan
   reparenting, per-process fd tables.
-* [x] COW `fork` with page refcounts; `kill` basics and sleep queues remain
-  open.
+* [x] COW `fork` with page refcounts; timer-based sleep queues (`sleep`).
+  `kill` basics remain open.
 * [ ] `brk`, anonymous `mmap`, `munmap`, guard-page stack growth.
 * [x] Shared `crt0`, user ABI header; `init`, `echo`.
 * [ ] Tiny libc + `sh`, `ls`, `cat`, `pwd`, `ps`, `kill`, `sleep`, `uname`,
   `clear`, `wc`, `head`.
-  **Partial:** `sh`, `ls`, `cat`, `wc`, `ps`, and `uname` exist; the shell has
-  `exit`/`help`/`pwd` builtins. `kill`, `sleep`, `clear`, `head`, and a shared
+  **Partial:** `sh`, `ls`, `cat`, `wc`, `ps`, `sleep`, and `uname` exist; the
+  shell has `exit`/`help`/`pwd` builtins. `kill`, `clear`, `head`, and a shared
   libc are still open.
 * [ ] Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
   **Partial:** external exec through `/bin`, line editing, blocking console
@@ -916,59 +915,3 @@ by a bad usercopy test; both BIOS and UEFI ISO boots work; docs match behavior.
 | `xorriso` ISO packaging | `scripts/mkiso.sh` |
 | `make run` QEMU graphical | root `Makefile` |
 
----
-
-## 10. Phase 0 wipe procedure (completed 2026-11-12)
-
-```sh
-# 1. Back up everything, including .git history
-mkdir -p /tmp/opencode
-tar -czf "/tmp/opencode/zenku-backup-$(date +%Y%m%d-%H%M%S).tar.gz" \
-    -C /home/xen/projects zenku
-
-# 2. Remove every entry, including dotfiles and .git
-find /home/xen/projects/zenku -mindepth 1 -maxdepth 1 \
-     -exec rm -rf -- {} +
-
-# 3. Fresh repository
-cd /home/xen/projects/zenku
-git init -b main
-```
-
-The backup is kept in `/tmp/opencode` for the remainder of the work. Existing
-`/home/xen/projects/bootloader` and all other directories were left untouched.
-
----
-
-## 11. Next action
-
-Phase 2 is complete and verified. In addition to the Phase 1 lines, boot now
-reports the GDT/TSS, IDT, PIC/PIT, PMM, VMM, and heap self-tests, and
-`make test-faults` proves all four fault classes panic cleanly.
-
-Phase 1 handoff for reference:
-
-```
-ZENKU STAGE3 OK
-stage3: kernel phys 0x200000 size 0x6250 entry 0xffffffff80200000
-stage3: jumping to kernel
-ZENKU KERNEL OK
-kernel: e820 7 entries, usable 2047 MiB
-kernel: framebuffer banner drawn
-kernel: entering idle loop
-PASS: boot chain reached the higher-half kernel
-```
-
-Stage1 loads stage2 from the El Torito extent; stage2 adds E820, VBE, ISO9660,
-and long mode; stage3 loads the ELF64 kernel from ext2 and builds the direct
-and higher-half maps; the kernel draws the splash and reports over COM1.
-`make run` shows the splash, `make test` exits 33.
-
-Phase 3 is complete: PS/2 keyboard and mouse with click-to-focus, serial IRQ4
-input, a double-buffered framebuffer console with scrollback and ANSI colors, a
-tty line discipline with command history, the desktop skeleton with clock, and
-a `fetch` system summary. `make test-input` and `make test-serial` cover both
-input paths.
-
-Every phase ends with `make test` passing and `make run` producing a usable
-screen.

@@ -12,7 +12,7 @@ trap 'rm -f "$LOG"' EXIT
 
 if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
     --wait 40 --wait-line "user: /init returned to the kernel" \
-    --serial-send "$(printf 'sh\rhelp\rpwd\rls /\recho shell works\runame\rcat /hello.txt\recho hi | wc\rps\rexit\r')" \
+    --serial-send "$(printf 'sh\rhelp\rpwd\rls /\recho shell works\runame\rcat /hello.txt\recho hi | wc\rsleep 0\recho after sleep\rps\rexit\r')" \
     > "$LOG" 2>&1; then
     echo "run-sh-test: probe failed"
     cat "$LOG"
@@ -35,6 +35,7 @@ check "shell works"
 check "Zenku Thunder x86_64"
 check "hello from the Zenku root filesystem"
 check "1 1 3"
+check "after sleep"
 check "PID PPID STATE NAME"
 check "run   sh"
 check "user: /bin/sh returned to the kernel"
