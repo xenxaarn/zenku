@@ -16,6 +16,7 @@
 #include <pic.h>
 #include <pit.h>
 #include <ps2.h>
+#include <serial.h>
 #include <types.h>
 #include <version.h>
 
@@ -93,6 +94,9 @@ static void cpu_init(void)
 
     ps2_init();
     kprintf("kernel: ps2 keyboard irq1 enabled\n");
+
+    serial_enable_rx_irq();
+    kprintf("kernel: serial irq4 receive enabled\n");
 }
 
 void kmain(struct boot_info *bi)
@@ -177,6 +181,7 @@ void kmain(struct boot_info *bi)
         __asm__ volatile("sti; hlt" : : : "memory");
 
         mouse_poll();
+        desktop_tick();
         if (!mouse_reported && mouse_packets() > 0) {
             kprintf("mouse: pointer active (%llu packets)\n",
                     mouse_packets());

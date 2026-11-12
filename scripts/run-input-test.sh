@@ -23,7 +23,7 @@ if ! grep -q "^help" "$LOG"; then
     tail -20 "$LOG"
     exit 1
 fi
-if ! grep -q "commands: help, mem, ticks, version, clear" "$LOG"; then
+if ! grep -q "commands: help, mem, ticks, uptime, version, clear" "$LOG"; then
     echo "FAIL: help command did not run"
     tail -20 "$LOG"
     exit 1

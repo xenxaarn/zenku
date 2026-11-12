@@ -13,17 +13,20 @@ Phase 3 has started with the interactive path:
 
 - PS/2 controller and keyboard (IRQ1), US layout, shift/ctrl/alt/caps, and
   extended arrow/navigation keys
-- non-blocking COM1 receive, mirrored into the console
+- serial driver with polled TX and IRQ4 receive, feeding the same input queue
+  as the keyboard
 - PS/2 mouse (IRQ12): packet decoding, on-screen arrow cursor drawn in the
   main context, clamped to the framebuffer
 - framebuffer text console with wrapping, scrolling, backspace, and tabs
-- desktop skeleton: wallpaper, taskbar, terminal window, and a live prompt
-- built-in commands: `help`, `mem`, `ticks`, `version`, `clear`
+- desktop skeleton: wallpaper, taskbar, terminal window, live clock, and a
+  live prompt
+- built-in commands: `help`, `mem`, `ticks`, `uptime`, `version`, `clear`
 - `make test-input` types `help` and moves the mouse through the QEMU monitor,
   checking console and pointer paths end to end
+- `make test-serial` types `help` over COM1 and checks the IRQ4 path
 
-Still to come in Phase 3: serial RX interrupts, double buffering/scrollback,
-a tty/line-discipline layer, clock, and richer desktop chrome.
+Still to come in Phase 3: double buffering/scrollback, a tty/line-discipline
+layer, and richer desktop chrome.
 
 Phase 2 made the kernel safe to fault and gave it memory to work with:
 
@@ -106,6 +109,7 @@ make run             # qemu-system-x86_64 -cdrom build/os.iso -m 2G -serial stdi
 make test            # headless boot; checks serial output and exit status
 make test-faults     # inject #DE/#UD/#GP/#PF and check the panic path
 make test-input      # boot, type 'help' via PS/2, check the console
+make test-serial     # type 'help' over COM1 IRQ4, check the console
 make check           # fast syntax check of C/asm/shell/python sources
 make check-link      # syntax check plus stage3 and kernel link checks
 make layout          # validate the boot image layout

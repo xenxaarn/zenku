@@ -4,6 +4,7 @@
 #include <fb.h>
 #include <kio.h>
 #include <mouse.h>
+#include <pit.h>
 #include <types.h>
 #include <version.h>
 
@@ -17,6 +18,8 @@
 #define TEXT_BRIGHT 0xF5F7FA
 
 static bool g_ready;
+static int g_clock_x;
+static uint64_t g_last_second;
 
 static void draw_taskbar(int width)
 {
@@ -27,7 +30,7 @@ static void draw_taskbar(int width)
     fb_text(OS_VERSION_STRING, 100, 10, 1, TEXT_DIM, TASKBAR_BG);
 
     fb_text("PIT 100 Hz", width - 300, 10, 1, TEXT_DIM, TASKBAR_BG);
-    fb_text("PMM/VMM/heap", width - 200, 10, 1, TEXT_DIM, TASKBAR_BG);
+    fb_text("00:00", width - 170, 10, 1, TEXT_DIM, TASKBAR_BG);
 
     fb_fill_rect(width - 100, 10, 10, 10, 0x81C784);
     fb_text("online", width - 84, 10, 1, TEXT_DIM, TASKBAR_BG);
@@ -52,6 +55,7 @@ void desktop_init(const struct boot_info *bi)
     fb_clear(WALLPAPER);
     fb_fill_rect(0, height / 2, width, height / 2, 0x0C1528);
     draw_taskbar(width);
+    g_clock_x = width - 170;
 
     /* Terminal window with a soft shadow and a small title bar. */
     fb_fill_rect(wx + 8, wy + 8, ww, wh, SHADOW);
@@ -79,6 +83,40 @@ void desktop_init(const struct boot_info *bi)
     mouse_init();
     kprintf("desktop: terminal ready (%dx%d cells), mouse ready\n",
             console_columns(), console_rows());
+}
+
+static void format_clock(char *out, uint64_t seconds)
+{
+    unsigned minutes = (unsigned)((seconds / 60) % 100);
+    unsigned secs = (unsigned)(seconds % 60);
+
+    out[0] = (char)('0' + minutes / 10);
+    out[1] = (char)('0' + minutes % 10);
+    out[2] = ':';
+    out[3] = (char)('0' + secs / 10);
+    out[4] = (char)('0' + secs % 10);
+    out[5] = '\0';
+}
+
+void desktop_tick(void)
+{
+    char clock[8];
+    uint64_t seconds;
+
+    if (!g_ready) {
+        return;
+    }
+
+    seconds = pit_ticks() / pit_frequency();
+    if (seconds == g_last_second) {
+        return;
+    }
+    g_last_second = seconds;
+
+    format_clock(clock, seconds);
+    mouse_cursor_hide();
+    fb_text(clock, g_clock_x, 10, 1, TEXT_DIM, TASKBAR_BG);
+    mouse_cursor_show();
 }
 
 bool desktop_ready(void)

@@ -724,14 +724,15 @@ readable panic; `make test` reports `ALL TESTS PASSED`; no frame leaks after
 
 ### Phase 3 — Drivers, console, desktop skeleton (≈2 sessions) — IN PROGRESS
 
-* Robust serial driver (IRQ4 RX, TX ring), log tags.
+* Robust serial driver (IRQ4 RX, TX ring), log tags. **Done:** polled TX and
+  IRQ4 RX into the keyboard queue; TX ring and log tags still open.
 * PS/2 controller init, keyboard decoding (shift/ctrl/alt, E0, repeat), mouse
   packet decoding, IRQ1/IRQ12. **Done:** keyboard, packet decode, IRQ12, and a
   software cursor; repeat and click actions still open.
 * Framebuffer double buffer, draw primitives, font, VT100 console, scrollback,
   line discipline, tty layer.
 * Desktop skeleton: wallpaper, top bar, terminal window, mouse cursor, clock.
-  **Done:** wallpaper, top bar, terminal window, cursor. Clock open.
+  **Done:** wallpaper, top bar, terminal window, cursor, ticking clock.
 * Serial input mirrors keyboard input into the active tty.
 
 **Accept:** typing appears in the graphical terminal and over serial; mouse
@@ -928,8 +929,8 @@ and higher-half maps; the kernel draws the splash and reports over COM1.
 Phase 3 is in progress: the PS/2 keyboard and mouse (with cursor),
 non-blocking serial input, framebuffer console, desktop skeleton, and
 interactive command prompt are implemented and covered by `make test-input`.
-Remaining work: serial RX interrupts, double buffering/scrollback, the tty
-line-discipline layer, and the clock.
+Remaining work: double buffering/scrollback, the tty line-discipline layer,
+and richer desktop chrome.
 
 Every phase ends with `make test` passing and `make run` producing a usable
 screen.

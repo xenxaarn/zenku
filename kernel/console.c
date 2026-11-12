@@ -185,7 +185,7 @@ static void command_run(void)
     }
 
     if (strcmp(g_line, "help") == 0) {
-        console_puts("commands: help, mem, ticks, version, clear\n");
+        console_puts("commands: help, mem, ticks, uptime, version, clear\n");
     } else if (strcmp(g_line, "mem") == 0) {
         console_puts("free frames: ");
         put_uint(pmm_free_frames());
@@ -196,6 +196,12 @@ static void command_run(void)
         console_puts("timer ticks: ");
         put_uint(pit_ticks());
         console_putc('\n');
+    } else if (strcmp(g_line, "uptime") == 0) {
+        console_puts("uptime: ");
+        put_uint(pit_ticks() / pit_frequency());
+        console_puts(" s (");
+        put_uint(pit_ticks());
+        console_puts(" ticks)\n");
     } else if (strcmp(g_line, "version") == 0) {
         console_puts("Zenku 0.0.1 - Thunder, 64-bit higher half\n");
     } else if (strcmp(g_line, "clear") == 0) {

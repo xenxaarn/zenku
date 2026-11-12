@@ -75,6 +75,8 @@ def main() -> int:
     ap.add_argument("--mouse", default="", help="relative mouse move as dx,dy")
     ap.add_argument("--wait-line", default="",
                     help="wait for this serial line before monitor commands")
+    ap.add_argument("--serial-send", default="",
+                    help="type this text on COM1 and capture the reply")
     args = ap.parse_args()
 
     iso = os.path.abspath(args.iso)
@@ -82,6 +84,9 @@ def main() -> int:
     tmp = tempfile.mkdtemp(prefix="zenku-probe-")
     sock = os.path.join(tmp, "mon.sock")
     serial = os.path.join(tmp, "serial.log")
+    serial_sock_path = os.path.join(tmp, "serial.sock") if args.serial_send else ""
+    serial_arg = (f"unix:{serial_sock_path},server=on,nowait"
+                  if serial_sock_path else f"file:{serial}")
 
     proc = subprocess.Popen(
         [
@@ -90,7 +95,7 @@ def main() -> int:
             "-m", "2G",
             "-machine", "pc",
             "-display", "none",
-            "-serial", f"file:{serial}",
+            "-serial", serial_arg,
             "-monitor", f"unix:{sock},server,nowait",
             "-device", "isa-debug-exit,iobase=0x501,iosize=0x04",
             "-no-reboot",
@@ -99,21 +104,61 @@ def main() -> int:
         stderr=subprocess.STDOUT,
     )
 
+    ser = None
+    serial_buf = bytearray()
+
+    def open_serial():
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            try:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.connect(serial_sock_path)
+                s.setblocking(False)
+                return s
+            except OSError:
+                time.sleep(0.05)
+        raise RuntimeError("serial socket never appeared")
+
+    def pump(until):
+        while time.time() < until:
+            if ser is not None:
+                try:
+                    chunk = ser.recv(65536)
+                except BlockingIOError:
+                    chunk = b""
+                if chunk:
+                    serial_buf.extend(chunk)
+            time.sleep(0.05)
+
+    def seen_text():
+        if ser is not None:
+            return bytes(serial_buf).decode("latin-1")
+        try:
+            with open(serial, "rb") as f:
+                return f.read().decode("latin-1")
+        except OSError:
+            return ""
+
     try:
+        if serial_sock_path:
+            ser = open_serial()
+
         if args.wait_line:
             deadline = time.time() + args.wait
             while time.time() < deadline:
-                try:
-                    with open(serial, "rb") as f:
-                        seen = f.read().decode("latin-1")
-                except OSError:
-                    seen = ""
-                if args.wait_line in seen:
-                    time.sleep(0.5)
+                pump(min(time.time() + 0.05, deadline))
+                if args.wait_line in seen_text():
+                    pump(time.time() + 0.5)
                     break
-                time.sleep(0.05)
         else:
-            time.sleep(args.wait)
+            pump(time.time() + args.wait)
+
+        if args.serial_send:
+            text = args.serial_send
+            if not text.endswith(("\r", "\n")):
+                text += "\r"
+            ser.sendall(text.encode())
+            pump(time.time() + 1.5)
         n = args.len
         cmds = []
         if args.keys:
@@ -136,6 +181,10 @@ def main() -> int:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+
+    if ser is not None:
+        with open(serial, "wb") as f:
+            f.write(serial_buf)
 
     print("=== serial ===")
     if os.path.exists(serial):
