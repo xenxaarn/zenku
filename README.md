@@ -21,15 +21,17 @@ Phase 3 has started with the interactive path:
   buffer and is blitted on change
 - framebuffer text console with wrapping, scrolling, backspace, tabs, and
   256-line scrollback (PgUp/PgDn)
+- tty line discipline: Left/Right/Home/End/Delete editing and a 16-entry
+  command history (Up/Down)
 - desktop skeleton: wallpaper, taskbar, terminal window, live clock, and a
   live prompt
-- built-in commands: `help`, `mem`, `ticks`, `uptime`, `version`, `clear`
+- built-in commands: `help`, `fetch`, `mem`, `ticks`, `uptime`, `version`,
+  `clear`; `fetch` prints a fastfetch-style system summary
 - `make test-input` types `help` and moves the mouse through the QEMU monitor,
   checking console and pointer paths end to end
 - `make test-serial` types `help` over COM1 and checks the IRQ4 path
 
-Still to come in Phase 3: a tty/line-discipline layer and richer desktop
-chrome.
+Still to come in Phase 3: VT100 escape handling and richer desktop chrome.
 
 Phase 2 made the kernel safe to fault and gave it memory to work with:
 

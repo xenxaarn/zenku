@@ -12,7 +12,7 @@ STAGE3_ASMS  := boot/stage3/entry.asm
 STAGE3_LD    := linker/stage3.ld
 
 KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
-                kernel/console.c kernel/desktop.c \
+                kernel/console.c kernel/desktop.c kernel/tty.c \
                 kernel/arch/x86_64/gdt.c kernel/arch/x86_64/idt.c \
                 kernel/arch/x86_64/irq.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \

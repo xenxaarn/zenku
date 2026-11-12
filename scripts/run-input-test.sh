@@ -12,18 +12,18 @@ trap 'rm -f "$LOG"' EXIT
 
 if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
     --wait 20 --wait-line "desktop: terminal ready" \
-    --keys "h,e,l,p,ret" --mouse "200,120" > "$LOG" 2>&1; then
+    --keys "h,e,p,left,l,ret" --mouse "200,120" > "$LOG" 2>&1; then
     echo "run-input-test: probe failed"
     cat "$LOG"
     exit 1
 fi
 
-if ! grep -q "^help" "$LOG"; then
-    echo "FAIL: typed text did not reach the console"
+if ! grep -q "commands: help, fetch, mem, ticks, uptime, version, clear" "$LOG"; then
+    echo "FAIL: edited command did not run"
     tail -20 "$LOG"
     exit 1
 fi
-if ! grep -q "commands: help, mem, ticks, uptime, version, clear" "$LOG"; then
+if ! grep -q "commands: help, fetch, mem, ticks, uptime, version, clear" "$LOG"; then
     echo "FAIL: help command did not run"
     tail -20 "$LOG"
     exit 1
