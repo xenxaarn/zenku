@@ -50,6 +50,11 @@ static int g_scroll_offset;
 
 static struct tty g_tty;
 
+/* Minimal ANSI SGR state machine: ESC [ params m. */
+static int g_ansi_state;
+static char g_ansi_params[16];
+static unsigned g_ansi_len;
+
 int console_columns(void)
 {
     return g_cols;
@@ -242,8 +247,87 @@ static void console_putc_inner(char c)
     g_col++;
 }
 
+static const uint32_t g_ansi_colors[8] = {
+    0x5C6370, 0xFF7B72, 0x81C784, 0xFFF176,
+    0x4FC3F7, 0xBA68C8, 0x56D4DD, 0xF5F7FA,
+};
+
+static const uint32_t g_ansi_bright[8] = {
+    0x8B949E, 0xFF9B95, 0xA5D6A7, 0xFFF59D,
+    0x81D4FA, 0xCE93D8, 0x80DEEA, 0xFFFFFF,
+};
+
+static void ansi_apply(void)
+{
+    unsigned i = 0;
+
+    if (g_ansi_len == 0) {
+        g_fg = COLOR_FG;
+        return;
+    }
+
+    while (i < g_ansi_len) {
+        int code = 0;
+
+        while (i < g_ansi_len && g_ansi_params[i] >= '0' &&
+               g_ansi_params[i] <= '9') {
+            code = code * 10 + (g_ansi_params[i] - '0');
+            i++;
+        }
+
+        if (code == 0 || code == 39) {
+            g_fg = COLOR_FG;
+        } else if (code >= 30 && code <= 37) {
+            g_fg = g_ansi_colors[code - 30];
+        } else if (code >= 90 && code <= 97) {
+            g_fg = g_ansi_bright[code - 90];
+        }
+
+        if (i < g_ansi_len && g_ansi_params[i] == ';') {
+            i++;
+        }
+    }
+}
+
+static bool ansi_consume(char c)
+{
+    if (g_ansi_state == 0) {
+        if (c == 0x1B) {
+            g_ansi_state = 1;
+            return true;
+        }
+        return false;
+    }
+
+    if (g_ansi_state == 1) {
+        g_ansi_state = (c == '[') ? 2 : 0;
+        g_ansi_len = 0;
+        return true;
+    }
+
+    if (c == 'm') {
+        g_ansi_params[g_ansi_len] = '\0';
+        ansi_apply();
+        g_ansi_state = 0;
+        return true;
+    }
+    if ((c >= '0' && c <= '9') || c == ';') {
+        if (g_ansi_len < sizeof(g_ansi_params) - 1) {
+            g_ansi_params[g_ansi_len++] = c;
+        }
+        return true;
+    }
+
+    g_ansi_state = 0;
+    return true;
+}
+
 void console_putc(char c)
 {
+    if (ansi_consume(c)) {
+        return;
+    }
+
     /* New output snaps the view back to the live tail. */
     if (g_scroll_offset != 0) {
         g_scroll_offset = 0;
@@ -307,6 +391,7 @@ static void tty_redraw(void)
     fb_fill_rect(g_x + (7 + g_tty.cursor) * g_cell_w,
                  y + g_cell_h - 2, g_cell_w, 2, COLOR_ACCENT);
     g_col = 7 + g_tty.length;
+    g_fg = COLOR_FG;
     mouse_cursor_show();
 }
 
@@ -425,9 +510,17 @@ static void command_run(void)
     }
 
     if (strcmp(g_line, "help") == 0) {
-        console_puts("commands: help, fetch, mem, ticks, uptime, version, clear\n");
+        console_puts("commands: help, fetch, colors, mem, ticks, uptime, "
+                     "version, clear\n");
     } else if (strcmp(g_line, "fetch") == 0) {
         command_fetch();
+    } else if (strcmp(g_line, "colors") == 0) {
+        console_puts("\x1b[31mred \x1b[32mgreen \x1b[33myellow "
+                     "\x1b[34mblue \x1b[35mmagenta \x1b[36mcyan "
+                     "\x1b[37mwhite\n");
+        console_puts("\x1b[91mbright red \x1b[92mbright green "
+                     "\x1b[93mbright yellow \x1b[94mbright blue\n");
+        console_puts("\x1b[0mdefault color\n");
     } else if (strcmp(g_line, "mem") == 0) {
         console_puts("free frames: ");
         put_uint(pmm_free_frames());
