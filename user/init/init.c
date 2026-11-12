@@ -81,6 +81,39 @@ void _start(void)
         print("init: bad user pointer FAILED\n");
     }
 
+    {
+        int pfd[2];
+        char pbuf[16];
+        long w;
+        long r;
+
+        if (sys_pipe(pfd) == 0) {
+            w = sys_write(pfd[1], "hello pipe", 10);
+            r = sys_read(pfd[0], pbuf, sizeof(pbuf));
+            if (w == 10 && r == 10 && pbuf[0] == 'h' && pbuf[9] == 'e') {
+                print("init: pipe transfer ok\n");
+            } else {
+                print("init: pipe transfer FAILED\n");
+            }
+
+            if (sys_read(pfd[0], pbuf, 4) == -11) {
+                print("init: empty pipe returned EAGAIN\n");
+            } else {
+                print("init: empty pipe FAILED\n");
+            }
+
+            sys_close(pfd[1]);
+            if (sys_read(pfd[0], pbuf, 4) == 0) {
+                print("init: pipe EOF after close ok\n");
+            } else {
+                print("init: pipe EOF FAILED\n");
+            }
+            sys_close(pfd[0]);
+        } else {
+            print("init: pipe creation FAILED\n");
+        }
+    }
+
     fd = sys_open("/etc/motd", O_RDONLY);
     if (fd < 0) {
         print("init: open /etc/motd failed\n");

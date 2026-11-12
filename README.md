@@ -7,7 +7,7 @@ contains the bootloader, the kernel, and a read-only ext2 root filesystem.
 
 The kernel codename is **Thunder**.
 
-## Status: Phase 4 (in progress)
+## Status: Phase 4 complete
 
 Phase 4 now covers the filesystem and user-mode paths:
 
@@ -19,19 +19,20 @@ Phase 4 now covers the filesystem and user-mode paths:
 - ELF64 loader with user page mappings and a guard-checked user copy path
 - ring-3 entry through `iretq` with a TSS syscall stack, and clean return to
   the kernel when the process exits
+- pipefs: 4 KiB non-blocking pipes with `EAGAIN`, `EPIPE`, and EOF semantics
 - `int 0x80` syscalls: `read`, `write`, `open`, `close`, `lseek`, `fstat`,
-  `getpid`, `getppid`, `exit`
+  `pipe`, `getpid`, `getppid`, `exit`
 - `/init` is built from `user/init/init.c`, stored in the ext2 rootfs, loaded
   from the VFS, and run in ring 3 (it reports `cs 0x1b`)
 - kernel commands: `ls`, `cat <path>`, `stat <path>`, `devtest`, `init`
 - demo rootfs content: `/README`, `/etc/motd`, `/etc/hostname`, `/hello.txt`
 - `make test-fs` lists, cats, and stats files over COM1, then exercises devfs
   and confirms ext2 rejects writes with `EROFS`
-- `make test-user` checks ring-3 entry, syscalls, bad-pointer rejection, and a
-  clean exit back to the shell
+- `make test-user` checks ring-3 entry, syscalls, pipes, bad-pointer
+  rejection, and a clean exit back to the shell
 
-Still to come in Phase 4: pipefs. Per-process address spaces are deferred to
-the scheduler in Phase 5; the current loader reuses the kernel PML4.
+Phase 4 is complete. Per-process address spaces are deferred to the scheduler
+in Phase 5; the current loader reuses the kernel PML4.
 
 Phase 3 completed the interactive path:
 
@@ -99,7 +100,7 @@ media contract is documented in [`docs/boot-protocol.md`](docs/boot-protocol.md)
 | 1 | Stage1→stage2→stage3, E820/VBE/ISO9660, ext2+ELF64, long mode, higher-half kernel | **Complete** |
 | 2 | GDT/TSS/IDT, exceptions, PIC/PIT, PMM/VMM/heap | **Complete** |
 | 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | **Complete** |
-| 4 | VFS, ext2 mount, ring 3, core syscalls | **In progress** |
+| 4 | VFS, ext2 mount, ring 3, core syscalls | **Complete** |
 | 5 | Scheduler, COW fork, exec/wait, libc, shell, coreutils | Pending |
 | 6 | Graphical desktop, terminal window, mouse UI | Pending |
 | 7 | UEFI loader and dual-boot ISO | Pending |

@@ -13,6 +13,7 @@
 #define SYS_close  3
 #define SYS_fstat  5
 #define SYS_lseek  8
+#define SYS_pipe   22
 #define SYS_getpid 39
 #define SYS_exit   60
 #define SYS_getppid 110

@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 4 in progress (VFS/ext2 done)
+**Status:** Phase 4 complete; Phase 5 next
 **Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
 **Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
@@ -746,14 +746,15 @@ and observe echoed output.
 IRQ4), mouse move/click focus, scrollback, ANSI SGR, and `fetch`. Cursor
 addressing is deferred polish.
 
-### Phase 4 — VFS, ext2, ring 3, core syscalls (≈3 sessions) — IN PROGRESS
+### Phase 4 — VFS, ext2, ring 3, core syscalls (≈3 sessions) — COMPLETE
 
 * VFS + path resolution + fd table + ramdisk block device + ext2 read-only.
   **Done:** ramdisk, ext2 mount shared with stage3, path lookup, inode stat,
   directory iteration, `ls`/`cat`/`stat`, and a 32-slot fd table with
   `open`/`read`/`write`/`lseek`/`close`/`fstat` returning negative errnos.
 * Devfs (`console`, `tty0`, `ttyS0`, `null`, `zero`), pipefs.
-  **Done:** devfs with a `devtest` command; pipefs is open.
+  **Done:** devfs with a `devtest` command, plus a non-blocking pipefs
+  (`SYS_pipe`, 4 KiB rings, `EAGAIN`/`EPIPE`/EOF) exercised by `/init`.
 * ELF loader in kernel, user address spaces, TSS/RSP0, ring-3 entry.
   **Done:** ELF64 ELF loader, user page mappings, TSS rsp0 syscall stack,
   `iretq` to ring 3, and a saved-context exit back to the kernel. A shared
@@ -770,6 +771,10 @@ addressing is deferred polish.
 **Accept:** `/init` runs in ring 3, `cat` of `/etc/motd` works, bad user
 pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
 `exit` reaps cleanly.
+
+**Verified:** `make test-user` reports `init: cs 0x1b`, syscall reads of
+`/etc/motd`, `EFAULT` on an unmapped pointer, pipe transfer/EAGAIN/EOF,
+`EROFS` on ext2 write, and a clean `exit` back to the shell.
 
 ### Phase 5 — Scheduler, fork/exec/wait, libc, shell (≈4 sessions)
 

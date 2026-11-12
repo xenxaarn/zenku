@@ -25,6 +25,7 @@ typedef long off_t;
 #define SYS_close   3
 #define SYS_fstat   5
 #define SYS_lseek   8
+#define SYS_pipe    22
 #define SYS_getpid  39
 #define SYS_exit    60
 #define SYS_getppid 110
@@ -91,6 +92,11 @@ static inline long sys_lseek(int fd, off_t offset, int whence)
 static inline long sys_fstat(int fd, struct zenku_stat *st)
 {
     return syscall3(SYS_fstat, fd, (long)st, 0);
+}
+
+static inline long sys_pipe(int fds[2])
+{
+    return syscall3(SYS_pipe, (long)fds, 0, 0);
 }
 
 static inline long sys_getpid(void)

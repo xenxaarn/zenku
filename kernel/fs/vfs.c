@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <ext2.h>
 #include <kio.h>
+#include <pipe.h>
 #include <ramdisk.h>
 #include <string.h>
 #include <types.h>
@@ -16,6 +17,7 @@ enum fd_kind {
     FD_FREE = 0,
     FD_EXT2,
     FD_DEV,
+    FD_PIPE,
 };
 
 struct fd_slot {
@@ -23,6 +25,8 @@ struct fd_slot {
     uint8_t flags;
     uint32_t ino;
     const struct devfs_ops *dev;
+    struct pipe *pipe;
+    bool pipe_write_end;
     uint64_t offset;
 };
 
@@ -157,6 +161,8 @@ static struct fd_slot *fd_alloc(int flags, const struct vfs_stat *st,
         slot->offset = 0;
         slot->ino = st->ino;
         slot->dev = dev;
+        slot->pipe = NULL;
+        slot->pipe_write_end = false;
         slot->kind = dev ? FD_DEV : FD_EXT2;
         return slot;
     }
@@ -240,7 +246,12 @@ int64_t fd_read(int fd, void *buf, size_t len)
         return -EFAULT;
     }
 
-    if (slot->kind == FD_DEV) {
+    if (slot->kind == FD_PIPE) {
+        if (slot->pipe_write_end) {
+            return -EBADF;
+        }
+        n = pipe_read(slot->pipe, buf, len);
+    } else if (slot->kind == FD_DEV) {
         if (!slot->dev || !slot->dev->read) {
             return -EINVAL;
         }
@@ -275,14 +286,19 @@ int64_t fd_write(int fd, const void *buf, size_t len)
         return -EFAULT;
     }
 
-    if (slot->kind != FD_DEV) {
+    if (slot->kind == FD_PIPE) {
+        if (!slot->pipe_write_end) {
+            return -EBADF;
+        }
+        n = pipe_write(slot->pipe, buf, len);
+    } else if (slot->kind != FD_DEV) {
         return -EROFS;
+    } else {
+        if (!slot->dev || !slot->dev->write) {
+            return -EINVAL;
+        }
+        n = slot->dev->write(NULL, buf, len);
     }
-    if (!slot->dev || !slot->dev->write) {
-        return -EINVAL;
-    }
-
-    n = slot->dev->write(NULL, buf, len);
     if (n > 0) {
         slot->offset += (uint64_t)n;
     }
@@ -336,6 +352,9 @@ int fd_close(int fd)
     if (!slot) {
         return -EBADF;
     }
+    if (slot->kind == FD_PIPE) {
+        pipe_drop_end(slot->pipe, slot->pipe_write_end);
+    }
     memset(slot, 0, sizeof(*slot));
     return 0;
 }
@@ -351,6 +370,11 @@ int fd_fstat(int fd, struct vfs_stat *out)
 
     memset(out, 0, sizeof(*out));
     out->ino = slot->ino;
+    if (slot->kind == FD_PIPE) {
+        out->mode = S_IFIFO | 0666;
+        out->links = 1;
+        return 0;
+    }
     if (slot->kind == FD_DEV) {
         out->mode = S_IFCHR | 0666;
         out->links = 1;
@@ -363,6 +387,59 @@ int fd_fstat(int fd, struct vfs_stat *out)
     out->mode = inode.mode;
     out->size = ext2_inode_size(&g_fs, &inode);
     out->links = inode.links_count;
+    return 0;
+}
+
+int vfs_pipe(int fds[2])
+{
+    struct pipe *pipe;
+    struct fd_slot *read_slot = NULL;
+    struct fd_slot *write_slot = NULL;
+    int read_fd = -1;
+    int write_fd = -1;
+
+    if (!fds) {
+        return -EINVAL;
+    }
+
+    for (int i = 0; i < VFS_MAX_FDS; i++) {
+        if (g_fds[i].kind != FD_FREE) {
+            continue;
+        }
+        if (!read_slot) {
+            read_slot = &g_fds[i];
+            read_fd = i;
+        } else {
+            write_slot = &g_fds[i];
+            write_fd = i;
+            break;
+        }
+    }
+    if (!read_slot || !write_slot) {
+        return -EMFILE;
+    }
+
+    pipe = pipe_create();
+    if (!pipe) {
+        return -ENFILE;
+    }
+
+    pipe_add_end(pipe, false);
+    pipe_add_end(pipe, true);
+
+    memset(read_slot, 0, sizeof(*read_slot));
+    read_slot->kind = FD_PIPE;
+    read_slot->flags = O_RDONLY;
+    read_slot->pipe = pipe;
+
+    memset(write_slot, 0, sizeof(*write_slot));
+    write_slot->kind = FD_PIPE;
+    write_slot->flags = O_WRONLY;
+    write_slot->pipe = pipe;
+    write_slot->pipe_write_end = true;
+
+    fds[0] = read_fd;
+    fds[1] = write_fd;
     return 0;
 }
 

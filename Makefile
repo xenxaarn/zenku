@@ -16,7 +16,7 @@ KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
                 kernel/arch/x86_64/gdt.c kernel/arch/x86_64/idt.c \
                 kernel/arch/x86_64/irq.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
-                kernel/fs/ramdisk.c kernel/fs/vfs.c kernel/fs/devfs.c fs/ext2.c \
+                kernel/fs/ramdisk.c kernel/fs/vfs.c kernel/fs/devfs.c kernel/fs/pipe.c fs/ext2.c \
                 kernel/exec/user.c kernel/syscall/syscall.c \
                 drivers/pic.c drivers/pit.c drivers/ps2.c drivers/mouse.c drivers/serial.c \
                 lib/string.c lib/kio.c

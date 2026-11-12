@@ -109,6 +109,22 @@ static int64_t sys_exit(int status)
     user_exit_to_kernel();
 }
 
+static int64_t sys_pipe(uint64_t fds_ptr)
+{
+    int fds[2];
+    int rc;
+
+    if (!user_range_ok(fds_ptr, sizeof(fds))) {
+        return -EFAULT;
+    }
+    rc = vfs_pipe(fds);
+    if (rc < 0) {
+        return rc;
+    }
+    memcpy((void *)(uintptr_t)fds_ptr, fds, sizeof(fds));
+    return 0;
+}
+
 static int64_t sys_getpid(void)
 {
     /* One user process runs at a time in Phase 4. */
@@ -142,6 +158,9 @@ void syscall_dispatch(struct regs *r)
         break;
     case SYS_lseek:
         ret = sys_lseek((int)r->rdi, (int64_t)r->rsi, (int)r->rdx);
+        break;
+    case SYS_pipe:
+        ret = sys_pipe(r->rdi);
         break;
     case SYS_getpid:
         ret = sys_getpid();
