@@ -75,7 +75,7 @@ void desktop_init(const struct boot_info *bi)
     console_init(cx, cy, ww - 24, wh - 50, 1);
     console_puts("Zenku 0.0.1 (Thunder) - higher-half kernel\n");
     console_puts("memory managers online, PS/2 keyboard ready\n");
-    console_puts("type 'help' for commands\n\n");
+    console_puts("type 'help' for commands, PgUp/PgDn to scroll\n\n");
     console_prompt();
 
     g_ready = true;

@@ -31,6 +31,21 @@ static uint32_t g_fg = COLOR_FG;
 static char g_line[128];
 static size_t g_line_len;
 
+/*
+ * Visual-line scrollback. A line enters the ring when it is completed, so
+ * redrawing the view is just placing the last g_rows lines on the screen.
+ */
+#define SCROLLBACK_LINES 256
+#define LINE_MAX 128
+
+static char g_hist[SCROLLBACK_LINES][LINE_MAX];
+static uint16_t g_hist_len[SCROLLBACK_LINES];
+static unsigned g_hist_head;
+static unsigned g_hist_count;
+static char g_cur[LINE_MAX];
+static unsigned g_cur_len;
+static int g_scroll_offset;
+
 int console_columns(void)
 {
     return g_cols;
@@ -46,6 +61,80 @@ void console_set_fg(uint32_t rgb)
     g_fg = rgb;
 }
 
+static void history_reset(void)
+{
+    g_hist_head = 0;
+    g_hist_count = 0;
+    g_cur_len = 0;
+    g_scroll_offset = 0;
+}
+
+static void history_push_line(void)
+{
+    unsigned slot;
+
+    if (g_hist_count < SCROLLBACK_LINES) {
+        slot = (g_hist_head + g_hist_count) % SCROLLBACK_LINES;
+        g_hist_count++;
+    } else {
+        slot = g_hist_head;
+        g_hist_head = (g_hist_head + 1) % SCROLLBACK_LINES;
+    }
+
+    memcpy(g_hist[slot], g_cur, g_cur_len);
+    g_hist[slot][g_cur_len] = '\0';
+    g_hist_len[slot] = (uint16_t)g_cur_len;
+    g_cur_len = 0;
+}
+
+static unsigned history_total(void)
+{
+    return g_hist_count + 1; /* history plus the line being typed */
+}
+
+static void console_render(void)
+{
+    unsigned total = history_total();
+    unsigned start;
+    unsigned maximum = total > (unsigned)g_rows ? total - (unsigned)g_rows : 0;
+
+    if (g_scroll_offset < 0) {
+        g_scroll_offset = 0;
+    }
+    if ((unsigned)g_scroll_offset > maximum) {
+        g_scroll_offset = (int)maximum;
+    }
+    start = maximum - (unsigned)g_scroll_offset;
+
+    mouse_cursor_hide();
+    fb_fill_rect(g_x, g_y, g_cols * g_cell_w, g_rows * g_cell_h, COLOR_BG);
+
+    for (int row = 0; row < g_rows; row++) {
+        unsigned index = start + (unsigned)row;
+        const char *text;
+        unsigned length;
+
+        if (index >= total) {
+            break;
+        }
+        if (index < g_hist_count) {
+            unsigned slot = (g_hist_head + index) % SCROLLBACK_LINES;
+
+            text = g_hist[slot];
+            length = g_hist_len[slot];
+        } else {
+            text = g_cur;
+            length = g_cur_len;
+        }
+
+        for (unsigned i = 0; i < length && (int)i < g_cols; i++) {
+            fb_char(text[i], g_x + (int)i * g_cell_w,
+                    g_y + row * g_cell_h, g_scale, COLOR_FG, COLOR_BG);
+        }
+    }
+    mouse_cursor_show();
+}
+
 void console_clear(void)
 {
     mouse_cursor_hide();
@@ -53,6 +142,7 @@ void console_clear(void)
     g_col = 0;
     g_row = 0;
     g_line_len = 0;
+    history_reset();
     mouse_cursor_show();
 }
 
@@ -70,6 +160,7 @@ void console_init(int x, int y, int width, int height, int scale)
     g_fg = COLOR_FG;
     g_line[0] = '\0';
     g_line_len = 0;
+    history_reset();
 
     console_clear();
 }
@@ -83,6 +174,7 @@ static void scroll(void)
 
 static void newline(void)
 {
+    history_push_line();
     g_col = 0;
     g_row++;
     if (g_row >= g_rows) {
@@ -107,6 +199,9 @@ static void console_putc_inner(char c)
     if (c == '\b') {
         if (g_col > 0) {
             g_col--;
+            if (g_cur_len > 0) {
+                g_cur_len--;
+            }
             fb_char(' ', g_x + g_col * g_cell_w,
                     g_y + g_row * g_cell_h, g_scale, COLOR_FG, COLOR_BG);
         }
@@ -130,11 +225,20 @@ static void console_putc_inner(char c)
     py = g_y + g_row * g_cell_h;
     fb_char(c, px, py, g_scale, g_fg, COLOR_BG);
     serial_putc(c);
+    if (g_cur_len < LINE_MAX - 1) {
+        g_cur[g_cur_len++] = c;
+    }
     g_col++;
 }
 
 void console_putc(char c)
 {
+    /* New output snaps the view back to the live tail. */
+    if (g_scroll_offset != 0) {
+        g_scroll_offset = 0;
+        console_render();
+    }
+
     mouse_cursor_hide();
     console_putc_inner(c);
     mouse_cursor_show();
@@ -219,8 +323,22 @@ static void command_run(void)
     console_prompt();
 }
 
+static void console_scroll(int lines)
+{
+    g_scroll_offset += lines;
+    console_render();
+}
+
 void console_input(int key)
 {
+    if (key == KEY_PGUP) {
+        console_scroll(g_rows - 2);
+        return;
+    }
+    if (key == KEY_PGDN) {
+        console_scroll(-(g_rows - 2));
+        return;
+    }
     if (key < 0 || key >= 0x100) {
         return;
     }

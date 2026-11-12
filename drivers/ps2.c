@@ -12,7 +12,7 @@
 #define PS2_STATUS_OUTPUT 0x01
 #define PS2_STATUS_INPUT  0x02
 
-#define KEY_QUEUE_SIZE 64
+#define KEY_QUEUE_SIZE 256
 
 static const char g_map_base[128] = {
     [0x01] = 27,  [0x02] = '1', [0x03] = '2', [0x04] = '3',

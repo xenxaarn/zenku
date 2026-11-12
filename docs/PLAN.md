@@ -730,7 +730,9 @@ readable panic; `make test` reports `ALL TESTS PASSED`; no frame leaks after
   packet decoding, IRQ1/IRQ12. **Done:** keyboard, packet decode, IRQ12, and a
   software cursor; repeat and click actions still open.
 * Framebuffer double buffer, draw primitives, font, VT100 console, scrollback,
-  line discipline, tty layer.
+  line discipline, tty layer. **Done:** draw primitives, font, console with
+  256-line scrollback and PgUp/PgDn. Open: double buffer, VT100 escapes, line
+  discipline, tty layer.
 * Desktop skeleton: wallpaper, top bar, terminal window, mouse cursor, clock.
   **Done:** wallpaper, top bar, terminal window, cursor, ticking clock.
 * Serial input mirrors keyboard input into the active tty.
@@ -929,7 +931,7 @@ and higher-half maps; the kernel draws the splash and reports over COM1.
 Phase 3 is in progress: the PS/2 keyboard and mouse (with cursor),
 non-blocking serial input, framebuffer console, desktop skeleton, and
 interactive command prompt are implemented and covered by `make test-input`.
-Remaining work: double buffering/scrollback, the tty line-discipline layer,
+Remaining work: framebuffer double buffering, the tty line-discipline layer,
 and richer desktop chrome.
 
 Every phase ends with `make test` passing and `make run` producing a usable
