@@ -39,8 +39,8 @@ repository. The result boots from a single `build/os.iso` image.
 - **Processes** — per-process page tables and 16 KiB kernel stacks, copy-on-write
   `fork`, `execve`, blocking `wait4`, and 100 Hz round-robin preemption.
 - **Userland** — a freestanding ABI header, shared `crt0`, `/init`, `/bin/sh`
-  with multi-stage pipelines, and `ls`, `cat`, `wc`, `head`, `ps`, `sleep`,
-  `kill`, `clear`, `uname`, and `echo`.
+  with multi-stage pipelines and `<`/`>` redirection, plus `ls`, `cat`, `wc`,
+  `head`, `ps`, `sleep`, `kill`, `clear`, `uname`, and `echo`.
 - **Automated verification** — serial/PS2/QEMU integration tests for the boot
   chain, memory, filesystem, syscalls, scheduler, shell, and fault paths.
 
@@ -133,14 +133,16 @@ builtins, external programs in `/bin`, and pipelines of up to four stages:
 ```text
 sh> ls /
 sh> cat /hello.txt
+sh> wc < /hello.txt
 sh> cat /etc/motd | head -n 1
 sh> echo hello from user space | wc
 sh> sleep 1
 sh> ps
 ```
 
-The root filesystem is intentionally read-only; writes are rejected by the
-VFS and ext2 layer.
+The root filesystem is intentionally read-only. Output redirection works for
+writable devices such as `/dev/null`, while writes to ext2 are rejected with
+`EROFS`.
 
 ## Repository layout
 

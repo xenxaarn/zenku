@@ -792,8 +792,8 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
   shared libc and a standalone `pwd` binary remain open.
 * [ ] Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
   **Partial:** external exec through `/bin`, line editing, blocking console
-  reads, and up to four-stage pipelines (`pipe` + `dup2`) work; redirection is
-  not implemented yet.
+  reads, up to four-stage pipelines (`pipe` + `dup2`), and `<`/`>` redirection
+  work. Builtins remain limited to `exit`, `help`, and `pwd`.
 * [x] `make test-proc`: fork/exec/wait, fd inheritance, timer preemption.
 * [x] `make test-sh`: shell builtins, external commands, and clean exit.
 * [ ] Stress tests: 100 sequential forks, COW write separation, fork bomb

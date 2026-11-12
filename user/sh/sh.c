@@ -179,30 +179,56 @@ static void wait_for(long pid)
     }
 }
 
-static void run_external(char *argv[])
+static int apply_redirect(const char *path, int flags, int target)
 {
-    long pid = sys_fork();
+    long fd = sys_open(path, flags);
 
-    if (pid == 0) {
-        exec_command(argv);
+    if (fd < 0) {
+        return -1;
     }
-    if (pid < 0) {
-        print("sh: fork failed\n");
-        return;
+    if (sys_dup2((int)fd, target) < 0) {
+        sys_close((int)fd);
+        return -1;
     }
-    wait_for(pid);
+    sys_close((int)fd);
+    return 0;
 }
 
-static void run_pipeline(char *stage_argv[][ARG_MAX], int stage_count)
+static int parse_redirects(char *argv[], int *argc, char **in, char **out)
+{
+    int kept = 0;
+
+    *in = 0;
+    *out = 0;
+    for (int i = 0; i < *argc; i++) {
+        if (same(argv[i], "<") || same(argv[i], ">")) {
+            char *path = (i + 1 < *argc) ? argv[i + 1] : 0;
+
+            if (!path) {
+                print("sh: missing redirection target\n");
+                return -1;
+            }
+            if (same(argv[i], "<")) {
+                *in = path;
+            } else {
+                *out = path;
+            }
+            i++;
+        } else {
+            argv[kept++] = argv[i];
+        }
+    }
+    *argc = kept;
+    argv[kept] = 0;
+    return 0;
+}
+
+static void run_pipeline(char *stage_argv[][ARG_MAX], int stage_count,
+                         char *stage_in[], char *stage_out[])
 {
     int pipes[PIPE_STAGES - 1][2];
     long pids[PIPE_STAGES];
     int created = 0;
-
-    if (stage_count == 1) {
-        run_external(stage_argv[0]);
-        return;
-    }
 
     for (int i = 0; i < stage_count - 1; i++) {
         if (sys_pipe(pipes[i]) < 0) {
@@ -211,9 +237,6 @@ static void run_pipeline(char *stage_argv[][ARG_MAX], int stage_count)
             break;
         }
         created++;
-    }
-    if (created == 0) {
-        return;
     }
     if (created < stage_count - 1) {
         stage_count = created + 1;
@@ -228,6 +251,20 @@ static void run_pipeline(char *stage_argv[][ARG_MAX], int stage_count)
             }
             if (i < stage_count - 1) {
                 sys_dup2(pipes[i][1], 1);
+            }
+            if (stage_in[i] &&
+                apply_redirect(stage_in[i], O_RDONLY, 0) < 0) {
+                print("sh: cannot open ");
+                print(stage_in[i]);
+                print("\n");
+                sys_exit(1);
+            }
+            if (stage_out[i] &&
+                apply_redirect(stage_out[i], O_WRONLY, 1) < 0) {
+                print("sh: cannot open ");
+                print(stage_out[i]);
+                print("\n");
+                sys_exit(1);
             }
             for (int j = 0; j < created; j++) {
                 sys_close(pipes[j][0]);
@@ -259,6 +296,8 @@ int main(long argc, char **argv)
     char line[LINE_MAX];
     char *stages[PIPE_STAGES];
     char *args[PIPE_STAGES][ARG_MAX];
+    char *redir_in[PIPE_STAGES];
+    char *redir_out[PIPE_STAGES];
     int counts[PIPE_STAGES];
 
     (void)argc;
@@ -281,10 +320,10 @@ int main(long argc, char **argv)
         }
         for (int i = 0; i < stage_count; i++) {
             counts[i] = split(stages[i], args[i], ARG_MAX);
-        }
-        for (int i = 0; i < stage_count; i++) {
-            if (counts[i] == 0) {
-                print("sh: empty pipeline stage\n");
+            if (counts[i] == 0 ||
+                parse_redirects(args[i], &counts[i], &redir_in[i],
+                                &redir_out[i]) < 0) {
+                print("sh: invalid pipeline stage\n");
                 stage_count = 0;
                 break;
             }
@@ -294,7 +333,8 @@ int main(long argc, char **argv)
         }
 
         first_argc = counts[0];
-        if (stage_count == 1 && first_argc == 1) {
+        if (stage_count == 1 && first_argc == 1 && !redir_in[0] &&
+            !redir_out[0]) {
             if (same(args[0][0], "exit")) {
                 break;
             }
@@ -309,7 +349,7 @@ int main(long argc, char **argv)
             }
         }
 
-        run_pipeline(args, stage_count);
+        run_pipeline(args, stage_count, redir_in, redir_out);
     }
 
     return 0;
