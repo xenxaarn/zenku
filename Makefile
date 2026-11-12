@@ -5,19 +5,37 @@ include config.mk
 
 STAGE1_SRC  := boot/stage1/stage1.asm
 STAGE2_SRC  := boot/stage2/entry.asm
-STAGE2_BIN  := $(BUILD)/boot/stage2.bin
-STAGE2_TEST := $(BUILD)/test/stage2.bin
-STAGE3_SRC  := boot/stage3/entry.asm
-STAGE3_BIN  := $(BUILD)/boot/stage3.bin
-STAGE3_TEST := $(BUILD)/test/stage3.bin
-BOOT_IMAGE  := $(BUILD)/boot/boot.img
-TEST_IMAGE  := $(BUILD)/test/boot.img
-ISO         := $(BUILD)/os.iso
-TEST_ISO    := $(BUILD)/test/os.iso
-
 STAGE2_DEPS := $(wildcard boot/stage2/*.asm) include/boot_offsets.inc
 
-.PHONY: all iso run debug test clean distclean doctor size layout layout-test help boot toolchain
+STAGE3_CSRCS := boot/stage3/main.c fs/ext2.c lib/string.c lib/kio.c
+STAGE3_ASMS  := boot/stage3/entry.asm
+STAGE3_LD    := linker/stage3.ld
+
+KERNEL_CSRCS := kernel/main.c kernel/fb.c lib/string.c lib/kio.c
+KERNEL_ASMS  := kernel/arch/x86_64/entry.asm
+KERNEL_LD    := linker/kernel.ld
+
+STAGE2_BIN      := $(BUILD)/boot/stage2.bin
+STAGE2_TEST     := $(BUILD)/test/stage2.bin
+STAGE3_ELF      := $(BUILD)/stage3/stage3.elf
+STAGE3_BIN      := $(BUILD)/boot/stage3.bin
+BOOT_IMAGE      := $(BUILD)/boot/boot.img
+TEST_IMAGE      := $(BUILD)/test/boot.img
+KERNEL_ELF      := $(BUILD)/kernel.elf
+KERNEL_TEST_ELF := $(BUILD)/test/kernel.elf
+ROOTFS          := $(BUILD)/rootfs.ext2
+ROOTFS_TEST     := $(BUILD)/test/rootfs.ext2
+ISO             := $(BUILD)/os.iso
+TEST_ISO        := $(BUILD)/test/os.iso
+
+STAGE3_OBJS := $(patsubst %.c,$(BUILD)/stage3/obj/%.o,$(STAGE3_CSRCS)) \
+               $(patsubst %.asm,$(BUILD)/stage3/obj/%.o,$(STAGE3_ASMS))
+KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
+               $(patsubst %.asm,$(BUILD)/kernel/obj/%.o,$(KERNEL_ASMS))
+KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
+                    $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
+
+.PHONY: all iso run debug test check check-link clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
 
 all: iso
 
@@ -35,19 +53,11 @@ boot: $(BOOT_IMAGE)
 
 $(STAGE2_BIN): $(STAGE2_DEPS) | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
-	$(NASM) -f bin -I. -o $@ $(STAGE2_SRC)
+	$(NASM) -f bin -Ox -I. -o $@ $(STAGE2_SRC)
 
 $(STAGE2_TEST): $(STAGE2_DEPS) | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
-	$(NASM) -f bin -I. -dTEST_EXIT -o $@ $(STAGE2_SRC)
-
-$(STAGE3_BIN): $(STAGE3_SRC) | $(BUILD)/dirs
-	@mkdir -p $(dir $@)
-	$(NASM) -f bin -Ox -o $@ $(STAGE3_SRC)
-
-$(STAGE3_TEST): $(STAGE3_SRC) | $(BUILD)/dirs
-	@mkdir -p $(dir $@)
-	$(NASM) -f bin -Ox -dTEST_EXIT -o $@ $(STAGE3_SRC)
+	$(NASM) -f bin -Ox -I. -dTEST_EXIT -o $@ $(STAGE2_SRC)
 
 $(BOOT_IMAGE): $(STAGE1_SRC) $(STAGE2_BIN) scripts/build-boot.sh | $(BUILD)/dirs
 	scripts/build-boot.sh $(STAGE1_SRC) $(STAGE2_BIN) $@
@@ -56,15 +66,78 @@ $(TEST_IMAGE): $(STAGE1_SRC) $(STAGE2_TEST) scripts/build-boot.sh | $(BUILD)/dir
 	scripts/build-boot.sh $(STAGE1_SRC) $(STAGE2_TEST) $@ -dTEST_EXIT
 
 # ---------------------------------------------------------------------------
+# Stage3: 64-bit C ext2 + ELF64 loader
+# ---------------------------------------------------------------------------
+stage3: $(STAGE3_BIN)
+
+$(BUILD)/stage3/obj/%.o: %.c | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(CC) $(STAGE3_CFLAGS) -c -o $@ $<
+
+$(BUILD)/stage3/obj/%.o: %.asm | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(NASM) -f elf64 -o $@ $<
+
+$(STAGE3_ELF): $(STAGE3_OBJS) $(STAGE3_LD)
+	$(LD) -m elf_x86_64 -T $(STAGE3_LD) -o $@ $(STAGE3_OBJS)
+
+$(STAGE3_BIN): $(STAGE3_ELF)
+	$(OBJCOPY) -O binary $< $@
+	@size=$$(stat -c%s $@); limit=$$((0x40000)); \
+	if [ $$size -gt $$limit ]; then \
+		echo "error: stage3.bin is $$size bytes (limit $$limit)" >&2; \
+		exit 1; \
+	fi
+
+# ---------------------------------------------------------------------------
+# Kernel: higher half at 0xFFFFFFFF80000000, LMA 0x00200000
+# ---------------------------------------------------------------------------
+kernel: $(KERNEL_ELF)
+
+$(BUILD)/kernel/obj/%.o: %.c | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(CC) $(KERNEL_CFLAGS) -c -o $@ $<
+
+$(BUILD)/kernel/obj/%.o: %.asm | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(NASM) -f elf64 -o $@ $<
+
+$(KERNEL_ELF): $(KERNEL_OBJS) $(KERNEL_LD)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T $(KERNEL_LD) -o $@ $(KERNEL_OBJS)
+
+$(BUILD)/kernel-test/obj/%.o: %.c | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(CC) $(KERNEL_CFLAGS) -DTEST_EXIT -c -o $@ $<
+
+$(BUILD)/kernel-test/obj/%.o: %.asm | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(NASM) -f elf64 -DTEST_EXIT -o $@ $<
+
+$(KERNEL_TEST_ELF): $(KERNEL_TEST_OBJS) $(KERNEL_LD)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T $(KERNEL_LD) -o $@ $(KERNEL_TEST_OBJS)
+
+# ---------------------------------------------------------------------------
+# Root filesystem images
+# ---------------------------------------------------------------------------
+rootfs: $(ROOTFS)
+
+$(ROOTFS): $(KERNEL_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
+	scripts/mkrootfs.sh $(KERNEL_ELF) $@
+
+$(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	scripts/mkrootfs.sh $(KERNEL_TEST_ELF) $@
+
+# ---------------------------------------------------------------------------
 # ISO images
 # ---------------------------------------------------------------------------
 iso: $(ISO)
 
-$(ISO): $(BOOT_IMAGE) $(STAGE3_BIN) scripts/mkiso.sh
-	scripts/mkiso.sh $(BOOT_IMAGE) $(ISO) $(STAGE3_BIN)
+$(ISO): $(BOOT_IMAGE) $(STAGE3_BIN) $(ROOTFS) scripts/mkiso.sh
+	scripts/mkiso.sh $(BOOT_IMAGE) $(ISO) $(STAGE3_BIN) $(ROOTFS)
 
-$(TEST_ISO): $(TEST_IMAGE) $(STAGE3_TEST) scripts/mkiso.sh
-	scripts/mkiso.sh $(TEST_IMAGE) $(TEST_ISO) $(STAGE3_TEST)
+$(TEST_ISO): $(TEST_IMAGE) $(STAGE3_BIN) $(ROOTFS_TEST) scripts/mkiso.sh
+	scripts/mkiso.sh $(TEST_IMAGE) $(TEST_ISO) $(STAGE3_BIN) $(ROOTFS_TEST)
 
 # ---------------------------------------------------------------------------
 # Run / debug / test
@@ -77,6 +150,16 @@ debug: $(ISO)
 
 test: $(TEST_ISO)
 	QEMU=$(QEMU) scripts/run-tests.sh $(TEST_ISO)
+
+check:
+	scripts/syntax-check.sh
+
+check-link:
+	scripts/syntax-check.sh --link
+
+# Print a Makefile variable (used by scripts/syntax-check.sh).
+print-%:
+	@echo '$($*)'
 
 # ---------------------------------------------------------------------------
 # Toolchain
@@ -95,7 +178,7 @@ doctor:
 	@echo "  NASM:      $(NASM)"
 	@echo "  xorriso:   $(XORRISO)"
 	@echo "  QEMU:      $(QEMU)"
-	@for tool in $(NASM) $(XORRISO) $(QEMU) $(CC) $(LD) stat; do \
+	@for tool in $(NASM) $(XORRISO) $(QEMU) $(CC) $(LD) stat $(MKE2FS); do \
 		if command -v $$tool >/dev/null 2>&1; then \
 			printf '  %-10s %s\n' "$$tool" "$$(command -v $$tool)"; \
 		else \
@@ -103,8 +186,8 @@ doctor:
 		fi; \
 	done
 
-size: $(BOOT_IMAGE)
-	@stat -c '%n: %s bytes' $(BOOT_IMAGE) $(STAGE2_BIN)
+size: $(BOOT_IMAGE) $(STAGE3_BIN) $(KERNEL_ELF)
+	@stat -c '%n: %s bytes' $(BOOT_IMAGE) $(STAGE2_BIN) $(STAGE3_BIN) $(KERNEL_ELF)
 
 layout: $(BOOT_IMAGE)
 	scripts/check-layout.sh $(BOOT_IMAGE)
@@ -124,8 +207,14 @@ help:
 	@echo "  run        boot the ISO in QEMU with a graphical display"
 	@echo "  debug      boot under QEMU with a GDB stub (-s -S)"
 	@echo "  test       headless boot + serial assertions"
+	@echo "  check      fast syntax check of C/asm/shell/python"
+	@echo "  check-link syntax check plus stage3 and kernel links"
+	@echo "  boot       build the boot image only"
+	@echo "  stage3     build the stage3 loader"
+	@echo "  kernel     build the kernel ELF"
+	@echo "  rootfs     build the ext2 root filesystem image"
 	@echo "  toolchain  bootstrap an x86_64-elf cross toolchain"
 	@echo "  doctor     show toolchain and tool availability"
-	@echo "  size       report boot image size"
+	@echo "  size       report image sizes"
 	@echo "  layout     validate the boot image layout"
 	@echo "  clean      remove build outputs"

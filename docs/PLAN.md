@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 0 complete; Phase 1 next
+**Status:** Phase 1 complete; Phase 2 next
 **Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
 **Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
@@ -695,7 +695,7 @@ status 33, layout validation, and the cross-toolchain bootstrap script.
 **Accept:** `make` produces `os.iso`; serial shows the stage1 banner; QEMU exits
 cleanly with `make test` (stage1 test build writes `isa-debug-exit`).
 
-### Phase 1 — Complete boot chain and higher-half kernel (≈3–4 sessions)
+### Phase 1 — Complete boot chain and higher-half kernel (≈3–4 sessions) — COMPLETE
 
 * stage1: boot-info-table LBA, DAP retries, sector-size detection, checksum.
 * stage2: A20, unreal mode, E820, VBE mode selection, ISO9660 reader, load
@@ -901,15 +901,24 @@ The backup is kept in `/tmp/opencode` for the remainder of the work. Existing
 
 ## 11. Next action
 
-Phase 0 is complete and verified:
+Phase 1 is complete and verified:
 
 ```
-ZENKU STAGE1 OK
-boot drive: 0xE0
-PASS: stage1 booted and reported over COM1
+ZENKU STAGE3 OK
+stage3: kernel phys 0x200000 size 0x6250 entry 0xffffffff80200000
+stage3: jumping to kernel
+ZENKU KERNEL OK
+kernel: e820 7 entries, usable 2047 MiB
+kernel: framebuffer banner drawn
+kernel: entering idle loop
+PASS: boot chain reached the higher-half kernel
 ```
 
-Phase 1 starts with stage1 loading stage2 from the El Torito extent, then adds
-E820, VBE, ISO9660, the ext2/ELF stage3 loader, long mode, and the higher-half
-kernel entry. Every phase ends with `make test` passing and `make run` producing
-a usable screen.
+Stage1 loads stage2 from the El Torito extent; stage2 adds E820, VBE, ISO9660,
+and long mode; stage3 loads the ELF64 kernel from ext2 and builds the direct
+and higher-half maps; the kernel draws the splash and reports over COM1.
+`make run` shows the splash, `make test` exits 33.
+
+Phase 2 begins with GDT/TSS finalization, IDT and exception stubs, PIC remap,
+PIT, and the physical/virtual memory managers. Every phase ends with
+`make test` passing and `make run` producing a usable screen.

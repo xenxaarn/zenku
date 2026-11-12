@@ -70,6 +70,7 @@ def main() -> int:
     ap.add_argument("--addr", default="0x20070")
     ap.add_argument("--len", type=int, default=32)
     ap.add_argument("--wait", type=float, default=4.0)
+    ap.add_argument("--screendump", default="", help="save a framebuffer image")
     args = ap.parse_args()
 
     iso = os.path.abspath(args.iso)
@@ -97,7 +98,10 @@ def main() -> int:
     try:
         time.sleep(args.wait)
         n = args.len
-        cmds = [
+        cmds = []
+        if args.screendump:
+            cmds.append(f"screendump {os.path.abspath(args.screendump)}")
+        cmds += [
             "info registers",
             f"x /{n}xb {args.addr}",
             f"xp /{n}xb {args.addr}",

@@ -46,12 +46,14 @@ KERNEL_CFLAGS := \
   -mno-red-zone -mcmodel=kernel -mno-sse -mno-mmx -mno-80387 -mno-avx \
   -Iinclude -Ikernel -Idrivers -Ifs
 
-# 32-bit bootloader-stage compiler flags (used from Phase 1 onward)
+# 64-bit bootloader-stage compiler flags. Stage3 runs in long mode and shares
+# the freestanding ext2/string code with the kernel, so it is built as x86_64
+# with the small code model (it executes in the low identity map).
 STAGE3_CFLAGS := \
-  -std=gnu11 -O2 -g -Wall -Wextra \
-  -m32 -march=i686 -ffreestanding -fno-pie -fno-pic \
-  -fno-stack-protector -fno-builtin -mno-sse -mno-mmx -mno-80387 \
-  -Iinclude -Iboot/stage3
+  -std=gnu11 -O2 -g -Wall -Wextra -Werror=return-type \
+  -m64 -ffreestanding -fno-pie -fno-pic -fno-stack-protector -fno-builtin \
+  -mno-red-zone -mno-sse -mno-mmx -mno-80387 -mno-avx \
+  -Iinclude -Ifs
 
 # User-space compiler flags (used from Phase 5 onward)
 USER_CFLAGS := \

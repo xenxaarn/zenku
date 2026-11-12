@@ -91,22 +91,24 @@ s2_vbe_init:
     mov al, [es:25]                 ; bpp
     mov [boot_params + BP_FB_BPP], al
 
-    mov eax, [es:31]                ; red mask
-    call vbe_mask_to_pos_size
+    ; VBE 2.0 mode info stores each channel as (size, position) byte pairs:
+    ; red 31/32, green 33/34, blue 35/36, reserved 37/38.
+    mov al, [es:31]
+    mov [boot_params + BP_FB_RED_SIZE], al
+    mov al, [es:32]
     mov [boot_params + BP_FB_RED_POS], al
-    mov [boot_params + BP_FB_RED_SIZE], ah
-    mov eax, [es:33]                ; green mask
-    call vbe_mask_to_pos_size
+    mov al, [es:33]
+    mov [boot_params + BP_FB_GREEN_SIZE], al
+    mov al, [es:34]
     mov [boot_params + BP_FB_GREEN_POS], al
-    mov [boot_params + BP_FB_GREEN_SIZE], ah
-    mov eax, [es:35]                ; blue mask
-    call vbe_mask_to_pos_size
+    mov al, [es:35]
+    mov [boot_params + BP_FB_BLUE_SIZE], al
+    mov al, [es:36]
     mov [boot_params + BP_FB_BLUE_POS], al
-    mov [boot_params + BP_FB_BLUE_SIZE], ah
-    mov eax, [es:37]                ; reserved mask
-    call vbe_mask_to_pos_size
+    mov al, [es:37]
+    mov [boot_params + BP_FB_RSVD_SIZE], al
+    mov al, [es:38]
     mov [boot_params + BP_FB_RSVD_POS], al
-    mov [boot_params + BP_FB_RSVD_SIZE], ah
 
     mov ax, [vbe_try_mode]
     movzx eax, ax
@@ -147,12 +149,14 @@ vbe_mask_to_pos_size:
     inc ecx
     jmp .find_pos
 .found:
+    ; EAX has been shifted right until bit 0 is the lowest set bit; count the
+    ; run of set bits from there.
     xor edx, edx                   ; count
 .count:
-    test ebx, 1
+    test eax, 1
     jz .count_done
     inc edx
-    shr ebx, 1
+    shr eax, 1
     jmp .count
 .count_done:
     mov al, cl

@@ -50,6 +50,9 @@ struct boot_params {
 /* Physical page where stage3 writes the final boot_info for the kernel. */
 #define BOOT_INFO_ADDR 0x7000u
 
+/* Normalized (24-byte) E820 entries written by stage3. */
+#define BOOT_E820_NORM_ADDR 0x8400u
+
 struct boot_info {
     uint64_t magic;          /* 0x000 */
     uint32_t version;        /* 0x008 */

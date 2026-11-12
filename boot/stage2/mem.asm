@@ -66,7 +66,7 @@ s2_e820:
     ret
 
 ; ---------------------------------------------------------------------------
-; Copy the BIOS 8x16 font (IVT vector 0x1F) to FONT_ADDR.
+; Copy the BIOS 8x16 font (IVT vector 0x43) to FONT_ADDR.
 ; Returns CF set if no font pointer is available.
 ; ---------------------------------------------------------------------------
 s2_copy_font:
@@ -76,7 +76,7 @@ s2_copy_font:
 
     xor ax, ax
     mov es, ax
-    mov si, 0x007C                 ; IVT entry 0x1F
+    mov si, 0x010C                 ; IVT entry 0x43 (8x16 font)
     mov ax, [es:si]                ; offset
     mov bx, [es:si + 2]            ; segment
     test ax, ax
@@ -96,6 +96,11 @@ s2_copy_font:
     add edi, 4
     dec ecx
     jnz .copy
+
+    ; The copy loop ran with DS = font segment; restore DS = 0 so the
+    ; boot_params writes below reach the real parameter block at 0x6000.
+    xor ax, ax
+    mov ds, ax
 
     mov dword [boot_params + BP_FONT_ADDR], FONT_ADDR
     mov dword [boot_params + BP_FONT_ADDR + 4], 0

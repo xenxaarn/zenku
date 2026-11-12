@@ -1,75 +1,57 @@
 ; ---------------------------------------------------------------------------
-; Zenku stage3 entry (temporary 64-bit milestone)
+; Zenku stage3 entry (64-bit C loader)
 ;
-; Runs in long mode with identity paging. This placeholder proves the mode
-; switch before the C ext2/ELF loader replaces it.
+; Entered from stage2 in long mode with identity paging for the first 1 GiB.
+; Sets up a stack, clears .bss, and calls into C.
 ; ---------------------------------------------------------------------------
 
 BITS 64
-ORG 0x20000
 
-start:
+section .text.entry
+global _start
+extern stage3_main
+extern __bss_start
+extern __bss_end
+
+_start:
+    cli
     cld
     mov rsp, 0x1F000
+    xor rbp, rbp
 
-    lea rsi, [msg_banner]
-    call serial_puts
-    call serial_flush
+    ; Clear .bss (the flat binary only contains initialized sections).
+    mov rdi, __bss_start
+    mov rcx, __bss_end
+    sub rcx, rdi
+    xor eax, eax
+    rep stosb
 
-%ifdef TEST_EXIT
-    mov dx, 0x501
-    mov al, 0x10
-    out dx, al
-%endif
+    ; RDI = physical boot_params block left by stage2.
+    mov rdi, 0x6000
+    call stage3_main
 
 .halt:
     cli
     hlt
     jmp .halt
 
-; RSI = NUL-terminated string
-serial_puts:
-    push rax
-    push rdx
-.next:
-    lodsb
-    test al, al
-    jz .done
-    call serial_putc
-    jmp .next
-.done:
-    pop rdx
-    pop rax
-    ret
+; ---------------------------------------------------------------------------
+; stage3_jump_to_kernel(uint64_t entry, uint64_t boot_info_phys)
+;
+; Installs no new state beyond flushing the TLB; stage3 has already added the
+; higher-half and direct-map entries to the active PML4.
+; ---------------------------------------------------------------------------
+global stage3_jump_to_kernel
+stage3_jump_to_kernel:
+    mov rax, rdi
+    mov rdi, rsi
 
-; AL = character
-serial_putc:
-    push rax
-    push rdx
-    mov ah, al
-.wait:
-    mov dx, 0x3FD
-    in al, dx
-    test al, 0x20
-    jz .wait
-    mov dx, 0x3F8
-    mov al, ah
-    out dx, al
-    pop rdx
-    pop rax
-    ret
+    mov rcx, cr3
+    mov cr3, rcx
 
-; Wait for the UART transmitter to drain before exiting QEMU.
-serial_flush:
-    push rax
-    push rdx
-.wait:
-    mov dx, 0x3FD
-    in al, dx
-    test al, 0x40
-    jz .wait
-    pop rdx
-    pop rax
-    ret
+    jmp rax
 
-msg_banner db "ZENKU STAGE3 OK (long mode)", 13, 10, 0
+.halt2:
+    cli
+    hlt
+    jmp .halt2

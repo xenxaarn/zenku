@@ -18,7 +18,7 @@ typedef __UINT64_TYPE__  uint64_t;
 typedef __INTPTR_TYPE__  intptr_t;
 typedef __UINTPTR_TYPE__ uintptr_t;
 typedef __SIZE_TYPE__    size_t;
-typedef __SSIZE_TYPE__   ssize_t;
+typedef __INTPTR_TYPE__  ssize_t;
 
 #define NULL ((void *)0)
 #define true 1
