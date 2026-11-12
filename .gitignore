@@ -3,19 +3,56 @@ build/
 *.iso
 *.img
 *.ext2
+*.bin
+*.elf
+*.map
+*.sym
 
-# Objects and dependency files
+# Object files and dependency files
 *.o
 *.d
 *.a
-*.elf
-*.bin
 
-# Editor and OS noise
-*~
-.DS_Store
-compile_commands.json
-.cache/
-__pycache__/
-*.pyc
+# Test and emulator logs
+*.log
+serial.log
+qemu.log
 *.ppm
+core
+core.*
+vgcore.*
+
+# Python tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Editor, language server, and tooling state
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+*.code-workspace
+.clangd/
+.cache/
+compile_commands.json
+
+# Backup, patch, and archive leftovers
+*.bak
+*.orig
+*.rej
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.zip
+*.7z
+
+# Operating system metadata
+.DS_Store
+Thumbs.db
