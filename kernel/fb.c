@@ -1,4 +1,5 @@
 #include <fb.h>
+#include <mm/heap.h>
 #include <string.h>
 
 #define PHYS_MAP_BASE 0xFFFF800000000000ull
@@ -20,6 +21,14 @@ static struct {
     bool ready;
 } g_fb;
 
+/*
+ * Drawing targets a heap-backed shadow buffer and fb_present() copies it to
+ * the LFB, so partial redraws never show tearing or cursor restore artifacts.
+ */
+static uint32_t *g_front;
+static uint32_t g_front_pitch;
+static bool g_dirty;
+
 int fb_init(const struct boot_info *bi)
 {
     memset(&g_fb, 0, sizeof(g_fb));
@@ -35,7 +44,9 @@ int fb_init(const struct boot_info *bi)
         return -1;
     }
 
-    g_fb.addr = (uint32_t *)(uintptr_t)(PHYS_MAP_BASE + bi->fb_addr);
+    g_front = (uint32_t *)(uintptr_t)(PHYS_MAP_BASE + bi->fb_addr);
+    g_front_pitch = bi->fb_pitch / 4;
+    g_fb.addr = g_front;
     g_fb.width = bi->fb_width;
     g_fb.height = bi->fb_height;
     g_fb.pitch_pixels = bi->fb_pitch / 4;
@@ -53,7 +64,31 @@ int fb_init(const struct boot_info *bi)
     }
 
     g_fb.ready = true;
+    g_dirty = true;
+
+    uint64_t bytes = (uint64_t)g_fb.pitch_pixels * g_fb.height *
+                     sizeof(uint32_t);
+    uint32_t *back = kmalloc((size_t)bytes);
+
+    if (back) {
+        g_fb.addr = back;
+    }
+
     return 0;
+}
+
+void fb_present(void)
+{
+    if (!g_fb.ready || !g_dirty || g_fb.addr == g_front) {
+        return;
+    }
+
+    for (uint32_t y = 0; y < g_fb.height; y++) {
+        memcpy(g_front + (uint64_t)y * g_front_pitch,
+               g_fb.addr + (uint64_t)y * g_fb.pitch_pixels,
+               (size_t)g_fb.width * sizeof(uint32_t));
+    }
+    g_dirty = false;
 }
 
 bool fb_ready(void)
@@ -97,6 +132,7 @@ void fb_pixel(int x, int y, uint32_t rgb)
         return;
     }
     g_fb.addr[(uint64_t)y * g_fb.pitch_pixels + (uint32_t)x] = pack(rgb);
+    g_dirty = true;
 }
 
 void fb_fill_rect(int x, int y, int w, int h, uint32_t rgb)
@@ -124,6 +160,7 @@ void fb_raw_set(int x, int y, uint32_t value)
         return;
     }
     g_fb.addr[(uint64_t)y * g_fb.pitch_pixels + (uint32_t)x] = value;
+    g_dirty = true;
 }
 
 void fb_scroll_up(int x, int y, int w, int h, int pixels, uint32_t rgb)
@@ -171,6 +208,7 @@ void fb_clear(uint32_t rgb)
             g_fb.addr[(uint64_t)y * g_fb.pitch_pixels + x] = pack(rgb);
         }
     }
+    g_dirty = true;
 }
 
 void fb_char(char ch, int x, int y, int scale, uint32_t fg, uint32_t bg)

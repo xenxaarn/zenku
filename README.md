@@ -17,6 +17,8 @@ Phase 3 has started with the interactive path:
   as the keyboard
 - PS/2 mouse (IRQ12): packet decoding, on-screen arrow cursor drawn in the
   main context, clamped to the framebuffer
+- double-buffered framebuffer: all drawing goes to a heap-backed shadow
+  buffer and is blitted on change
 - framebuffer text console with wrapping, scrolling, backspace, tabs, and
   256-line scrollback (PgUp/PgDn)
 - desktop skeleton: wallpaper, taskbar, terminal window, live clock, and a
@@ -26,8 +28,8 @@ Phase 3 has started with the interactive path:
   checking console and pointer paths end to end
 - `make test-serial` types `help` over COM1 and checks the IRQ4 path
 
-Still to come in Phase 3: framebuffer double buffering, a tty/line-discipline
-layer, and richer desktop chrome.
+Still to come in Phase 3: a tty/line-discipline layer and richer desktop
+chrome.
 
 Phase 2 made the kernel safe to fault and gave it memory to work with:
 

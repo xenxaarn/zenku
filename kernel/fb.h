@@ -10,6 +10,9 @@ uint32_t fb_width(void);
 uint32_t fb_height(void);
 
 void fb_clear(uint32_t rgb);
+
+/* Blit the shadow buffer to the LFB when something changed. */
+void fb_present(void);
 void fb_pixel(int x, int y, uint32_t rgb);
 void fb_fill_rect(int x, int y, int w, int h, uint32_t rgb);
 void fb_scroll_up(int x, int y, int w, int h, int pixels, uint32_t rgb);

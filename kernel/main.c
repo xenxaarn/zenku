@@ -195,5 +195,7 @@ void kmain(struct boot_info *bi)
         if (key >= 0) {
             console_input(key);
         }
+
+        fb_present();
     }
 }
