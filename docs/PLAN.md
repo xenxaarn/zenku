@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 2 complete; Phase 3 in progress
+**Status:** Phase 3 complete; Phase 4 next
 **Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
 **Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
@@ -722,7 +722,7 @@ a deliberate ELF corruption produces a clean stage3 error, not a triple fault.
 readable panic; `make test` reports `ALL TESTS PASSED`; no frame leaks after
 10k alloc/free cycles.
 
-### Phase 3 — Drivers, console, desktop skeleton (≈2 sessions) — IN PROGRESS
+### Phase 3 — Drivers, console, desktop skeleton (≈2 sessions) — COMPLETE
 
 * Robust serial driver (IRQ4 RX, TX ring), log tags. **Done:** polled TX and
   IRQ4 RX into the keyboard queue; TX ring and log tags still open.
@@ -741,6 +741,10 @@ readable panic; `make test` reports `ALL TESTS PASSED`; no frame leaks after
 **Accept:** typing appears in the graphical terminal and over serial; mouse
 moves/clicks; ANSI colors and scrolling work; `make test` can send serial text
 and observe echoed output.
+
+**Verified:** `make test-input` (PS/2 edit + run), `make test-serial` (COM1
+IRQ4), mouse move/click focus, scrollback, ANSI SGR, and `fetch`. Cursor
+addressing is deferred polish.
 
 ### Phase 4 — VFS, ext2, ring 3, core syscalls (≈3 sessions)
 
@@ -929,10 +933,11 @@ and long mode; stage3 loads the ELF64 kernel from ext2 and builds the direct
 and higher-half maps; the kernel draws the splash and reports over COM1.
 `make run` shows the splash, `make test` exits 33.
 
-Phase 3 is in progress: the PS/2 keyboard and mouse (with cursor),
-non-blocking serial input, framebuffer console, desktop skeleton, and
-interactive command prompt are implemented and covered by `make test-input`.
-Remaining work: cursor addressing and richer desktop chrome.
+Phase 3 is complete: PS/2 keyboard and mouse with click-to-focus, serial IRQ4
+input, a double-buffered framebuffer console with scrollback and ANSI colors, a
+tty line discipline with command history, the desktop skeleton with clock, and
+a `fetch` system summary. `make test-input` and `make test-serial` cover both
+input paths.
 
 Every phase ends with `make test` passing and `make run` producing a usable
 screen.

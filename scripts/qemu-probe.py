@@ -73,6 +73,7 @@ def main() -> int:
     ap.add_argument("--screendump", default="", help="save a framebuffer image")
     ap.add_argument("--keys", default="", help="comma-separated sendkey names")
     ap.add_argument("--mouse", default="", help="relative mouse move as dx,dy")
+    ap.add_argument("--click", action="store_true", help="left click after moving")
     ap.add_argument("--wait-line", default="",
                     help="wait for this serial line before monitor commands")
     ap.add_argument("--serial-send", default="",
@@ -166,6 +167,8 @@ def main() -> int:
         if args.mouse:
             dx, dy = args.mouse.split(",")
             cmds.append(f"mouse_move {dx} {dy}")
+        if args.click:
+            cmds += ["mouse_button 1", "mouse_button 0"]
         if args.screendump:
             cmds.append(f"screendump {os.path.abspath(args.screendump)}")
         cmds += [

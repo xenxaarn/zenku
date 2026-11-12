@@ -24,15 +24,15 @@ Phase 3 has started with the interactive path:
 - tty line discipline: Left/Right/Home/End/Delete editing and a 16-entry
   command history (Up/Down)
 - ANSI SGR colors (30-37, 90-97, reset) with a `colors` demo command
-- desktop skeleton: wallpaper, taskbar, terminal window, live clock, and a
-  live prompt
+- desktop skeleton: wallpaper, taskbar, terminal window with click-to-focus,
+  live clock, and a live prompt
 - built-in commands: `help`, `fetch`, `mem`, `ticks`, `uptime`, `version`,
   `clear`; `fetch` prints a fastfetch-style system summary
 - `make test-input` types `help` and moves the mouse through the QEMU monitor,
   checking console and pointer paths end to end
 - `make test-serial` types `help` over COM1 and checks the IRQ4 path
 
-Still to come in Phase 3: cursor addressing and richer desktop chrome.
+Remaining polish: ANSI cursor addressing and richer desktop chrome.
 
 Phase 2 made the kernel safe to fault and gave it memory to work with:
 

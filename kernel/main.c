@@ -175,12 +175,19 @@ void kmain(struct boot_info *bi)
 
     kprintf("kernel: entering idle loop\n");
     bool mouse_reported = false;
+    uint8_t last_buttons = 0;
     for (;;) {
         int key;
+        uint8_t buttons;
 
         __asm__ volatile("sti; hlt" : : : "memory");
 
         mouse_poll();
+        buttons = mouse_buttons();
+        if ((buttons & 0x01) && !(last_buttons & 0x01)) {
+            desktop_click(mouse_x(), mouse_y(), buttons);
+        }
+        last_buttons = buttons;
         desktop_tick();
         if (!mouse_reported && mouse_packets() > 0) {
             kprintf("mouse: pointer active (%llu packets)\n",

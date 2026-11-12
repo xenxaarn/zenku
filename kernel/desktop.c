@@ -18,8 +18,28 @@
 #define TEXT_BRIGHT 0xF5F7FA
 
 static bool g_ready;
+static bool g_focused = true;
+static int g_win_x;
+static int g_win_y;
+static int g_win_w;
+static int g_win_h;
 static int g_clock_x;
 static uint64_t g_last_second;
+
+static void draw_titlebar(void)
+{
+    mouse_cursor_hide();
+    fb_fill_rect(g_win_x, g_win_y, g_win_w, 28, WINDOW_BG);
+    fb_fill_rect(g_win_x, g_win_y, g_win_w, 2,
+                 g_focused ? ACCENT : WINDOW_EDGE);
+    fb_text("thunder console", g_win_x + 12, g_win_y + 7, 1,
+            g_focused ? TEXT_BRIGHT : TEXT_DIM, WINDOW_BG);
+
+    fb_fill_rect(g_win_x + g_win_w - 66, g_win_y + 10, 9, 9, 0x81C784);
+    fb_fill_rect(g_win_x + g_win_w - 48, g_win_y + 10, 9, 9, 0xFFF176);
+    fb_fill_rect(g_win_x + g_win_w - 30, g_win_y + 10, 9, 9, 0xFF7B72);
+    mouse_cursor_show();
+}
 
 static void draw_taskbar(int width)
 {
@@ -47,6 +67,11 @@ void desktop_init(const struct boot_info *bi)
     int cx = wx + 12;
     int cy = wy + 38;
 
+    g_win_x = wx;
+    g_win_y = wy;
+    g_win_w = ww;
+    g_win_h = wh;
+
     if (!fb_ready() || !(bi->flags & BOOT_FLAG_FONT)) {
         kprintf("desktop: framebuffer or font unavailable\n");
         return;
@@ -66,11 +91,7 @@ void desktop_init(const struct boot_info *bi)
     fb_fill_rect(wx, wy, 1, wh, WINDOW_EDGE);
     fb_fill_rect(wx + ww - 1, wy, 1, wh, WINDOW_EDGE);
 
-    fb_text("thunder console", wx + 12, wy + 7, 1, TEXT_BRIGHT, WINDOW_BG);
-
-    fb_fill_rect(wx + ww - 66, wy + 10, 9, 9, 0x81C784);
-    fb_fill_rect(wx + ww - 48, wy + 10, 9, 9, 0xFFF176);
-    fb_fill_rect(wx + ww - 30, wy + 10, 9, 9, 0xFF7B72);
+    draw_titlebar();
 
     console_init(cx, cy, ww - 24, wh - 50, 1);
     console_puts("Zenku 0.0.1 (Thunder) - higher-half kernel\n");
@@ -117,6 +138,22 @@ void desktop_tick(void)
     mouse_cursor_hide();
     fb_text(clock, g_clock_x, 10, 1, TEXT_DIM, TASKBAR_BG);
     mouse_cursor_show();
+}
+
+void desktop_click(int x, int y, uint8_t buttons)
+{
+    bool inside;
+
+    if (!g_ready || !(buttons & 0x01)) {
+        return;
+    }
+
+    inside = x >= g_win_x && x < g_win_x + g_win_w &&
+             y >= g_win_y && y < g_win_y + g_win_h;
+    if (inside != g_focused) {
+        g_focused = inside;
+        draw_titlebar();
+    }
 }
 
 bool desktop_ready(void)
