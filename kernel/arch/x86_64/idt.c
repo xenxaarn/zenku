@@ -160,6 +160,14 @@ void isr_dispatch(struct regs *r)
                 process_page_fault(cr2, r->error)) {
                 return;
             }
+            /* A user access outside every mapping is a process fault, not a
+             * kernel bug: terminate it with the SIGSEGV-style status. */
+            if ((r->cs & 3) == 3) {
+                kprintf("user: page fault at 0x%llx, killing pid %d\n",
+                        cr2, process_getpid());
+                process_exit(r, 128 + 11);
+                return;
+            }
         }
         exception_panic(r);
         return;

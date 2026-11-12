@@ -445,6 +445,27 @@ int main(long argc, char **argv)
     }
 
     {
+        long child = sys_fork();
+
+        if (child == 0) {
+            volatile unsigned long *bad = (volatile unsigned long *)0;
+
+            *bad = 1;
+            sys_exit(0);
+        } else if (child > 0) {
+            int status = -1;
+
+            if (sys_wait4(child, &status, 0) == child && status == 139) {
+                print("fault: user SIGSEGV isolated ok\n");
+            } else {
+                print("fault: isolation FAILED\n");
+            }
+        } else {
+            print("fault: fork FAILED\n");
+        }
+    }
+
+    {
         int spawned = 0;
         int failed = 0;
 

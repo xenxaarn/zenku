@@ -33,7 +33,8 @@ repository. The result boots from a single `build/os.iso` image.
 - **Higher-half kernel** — linked at `0xFFFFFFFF80000000`, 4-level paging,
   4 GiB direct map, 16 MiB kernel heap, and a bitmap physical frame allocator.
 - **Fault-safe core** — GDT/TSS with double-fault IST, 256-entry IDT,
-  readable panic dumps, and boot-time PMM/VMM/heap self-tests.
+  readable panic dumps, boot-time PMM/VMM/heap self-tests, and user page
+  faults that terminate only the offending process.
 - **Filesystem and devices** — read-only ext2, a POSIX-style VFS, devfs under
   `/dev`, and 4 KiB pipes with `EAGAIN`, `EPIPE`, and EOF semantics.
 - **Processes** — per-process page tables and 16 KiB kernel stacks, copy-on-write

@@ -798,7 +798,8 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
 * [x] `make test-proc`: fork/exec/wait, fd inheritance, timer preemption.
 * [x] `make test-sh`: shell builtins, external commands, and clean exit.
 * [x] Stress tests: 100 sequential forks, COW write separation, fork bomb
-  capped by a process limit, exec failure rollback, and heap/mmap/stack checks.
+  capped by a process limit, exec failure rollback, heap/mmap/stack checks,
+  and SIGSEGV-style isolation of user page faults.
 
 **Accept:** interactive shell runs `ls /`, `cat /etc/motd`, `echo hi | wc`,
 `ps` shows init/sh/ps, Ctrl-D exits, and the system remains responsive after
