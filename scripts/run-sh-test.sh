@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Shell smoke test: start /bin/sh from the kernel prompt, run a builtin and
+# several external commands, then exit back to the kernel.
+set -uo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ISO=${1:-$ROOT/build/os.iso}
+[ -f "$ISO" ] || { echo "run-sh-test: missing ISO: $ISO" >&2; exit 1; }
+
+LOG=$(mktemp "${TMPDIR:-/tmp}/zenku-sh.XXXXXX")
+trap 'rm -f "$LOG"' EXIT
+
+if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
+    --wait 40 --wait-line "user: /init returned to the kernel" \
+    --serial-send "$(printf 'sh\rhelp\recho shell works\runame\rcat /hello.txt\rexit\r')" \
+    > "$LOG" 2>&1; then
+    echo "run-sh-test: probe failed"
+    cat "$LOG"
+    exit 1
+fi
+
+check() {
+    if ! grep -q "$1" "$LOG"; then
+        echo "FAIL: missing: $1"
+        tail -60 "$LOG"
+        exit 1
+    fi
+}
+
+check "sh> "
+check "shell: builtins: exit, help"
+check "shell works"
+check "Zenku Thunder x86_64"
+check "hello from the Zenku root filesystem"
+check "user: /bin/sh returned to the kernel"
+
+echo "PASS: /bin/sh ran builtins, external commands, and exited"

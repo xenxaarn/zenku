@@ -17,7 +17,7 @@ KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
                 kernel/arch/x86_64/irq.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
                 kernel/fs/ramdisk.c kernel/fs/vfs.c kernel/fs/devfs.c kernel/fs/pipe.c fs/ext2.c \
-                kernel/exec/loader.c kernel/sched/process.c kernel/syscall/syscall.c \
+                kernel/exec/loader.c kernel/sched/process.c kernel/syscall/syscall.c kernel/idle.c \
                 drivers/pic.c drivers/pit.c drivers/ps2.c drivers/mouse.c drivers/serial.c \
                 lib/string.c lib/kio.c
 KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
@@ -36,6 +36,9 @@ KERNEL_ELF      := $(BUILD)/kernel.elf
 KERNEL_TEST_ELF := $(BUILD)/test/kernel.elf
 USER_INIT_ELF   := $(BUILD)/user/init.elf
 USER_ECHO_ELF   := $(BUILD)/user/echo.elf
+USER_SH_ELF     := $(BUILD)/user/sh.elf
+USER_CAT_ELF    := $(BUILD)/user/cat.elf
+USER_UNAME_ELF  := $(BUILD)/user/uname.elf
 USER_BIN_DIR    := $(BUILD)/user/bin
 ROOTFS          := $(BUILD)/rootfs.ext2
 ROOTFS_TEST     := $(BUILD)/test/rootfs.ext2
@@ -49,7 +52,7 @@ KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
 KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
                     $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
 
-.PHONY: all iso run debug test test-input test-serial test-fs test-user test-proc check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
+.PHONY: all iso run debug test test-input test-serial test-fs test-user test-proc test-sh check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
 
 all: iso
 
@@ -191,9 +194,28 @@ $(USER_ECHO_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
 		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/echo.o
 
-$(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
+$(USER_SH_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/sh/sh.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/sh/sh.o
+
+$(USER_CAT_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/cat.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/cat.o
+
+$(USER_UNAME_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/uname.o user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/uname.o
+
+$(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
+           $(USER_CAT_ELF) $(USER_UNAME_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
 	@mkdir -p $(USER_BIN_DIR)
 	cp $(USER_ECHO_ELF) $(USER_BIN_DIR)/echo
+	cp $(USER_SH_ELF) $(USER_BIN_DIR)/sh
+	cp $(USER_CAT_ELF) $(USER_BIN_DIR)/cat
+	cp $(USER_UNAME_ELF) $(USER_BIN_DIR)/uname
 	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 32 $(USER_INIT_ELF) $(USER_BIN_DIR)
 
 $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
@@ -237,6 +259,9 @@ test-user: $(ISO)
 
 test-proc: $(ISO)
 	QEMU=$(QEMU) scripts/run-proc-test.sh $(ISO)
+
+test-sh: $(ISO)
+	QEMU=$(QEMU) scripts/run-sh-test.sh $(ISO)
 
 check:
 	scripts/syntax-check.sh
@@ -298,6 +323,8 @@ help:
 	@echo "  test-serial type help over COM1 IRQ4, check the console"
 	@echo "  test-fs    mount ext2, then ls/cat/stat over COM1"
 	@echo "  test-user  run /init in ring 3 and check the syscalls"
+	@echo "  test-proc  check fork, exec, wait, pipes, and preemption"
+	@echo "  test-sh    run /bin/sh builtins and external commands"
 	@echo "  test-faults inject #DE/#UD/#GP/#PF and check panics"
 	@echo "  check      fast syntax check of C/asm/shell/python"
 	@echo "  check-link syntax check plus stage3 and kernel links"

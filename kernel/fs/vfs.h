@@ -51,6 +51,9 @@ int64_t fd_lseek(int fd, int64_t offset, int whence);
 int fd_close(int fd);
 int fd_fstat(int fd, struct vfs_stat *out);
 
+/* True when fd refers to the interactive terminal device. */
+bool fd_is_console(int fd);
+
 /* Create a non-blocking pipe; fds[0] is the read end, fds[1] the write end. */
 int vfs_pipe(int fds[2]);
 

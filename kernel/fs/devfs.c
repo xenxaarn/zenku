@@ -1,9 +1,43 @@
 #include <console.h>
 #include <devfs.h>
+#include <errno.h>
 #include <ext2.h>
 #include <kio.h>
+#include <process.h>
 #include <string.h>
 #include <types.h>
+
+#define CONSOLE_INPUT_MAX 512
+
+static char g_console_input[CONSOLE_INPUT_MAX];
+static unsigned g_console_head;
+static unsigned g_console_tail;
+static bool g_console_eof;
+
+void devfs_console_push(const char *data, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        unsigned next = (g_console_head + 1) % CONSOLE_INPUT_MAX;
+
+        if (next == g_console_tail) {
+            break; /* drop on overflow */
+        }
+        g_console_input[g_console_head] = data[i];
+        g_console_head = next;
+    }
+    process_wake_io();
+}
+
+void devfs_console_push_eof(void)
+{
+    g_console_eof = true;
+    process_wake_io();
+}
+
+bool devfs_console_pending(void)
+{
+    return g_console_head != g_console_tail || g_console_eof;
+}
 
 static int64_t null_read(void *ctx, void *buf, size_t len)
 {
@@ -36,10 +70,25 @@ static int64_t discard_write(void *ctx, const void *buf, size_t len)
 
 static int64_t console_read(void *ctx, void *buf, size_t len)
 {
+    size_t count = 0;
+
     (void)ctx;
-    (void)buf;
-    (void)len;
-    return 0;
+    if (len == 0) {
+        return 0;
+    }
+
+    while (count < len && g_console_tail != g_console_head) {
+        ((char *)buf)[count++] = g_console_input[g_console_tail];
+        g_console_tail = (g_console_tail + 1) % CONSOLE_INPUT_MAX;
+    }
+    if (count > 0) {
+        return (int64_t)count;
+    }
+    if (g_console_eof) {
+        g_console_eof = false;
+        return 0;
+    }
+    return -EAGAIN;
 }
 
 static int64_t console_write(void *ctx, const void *buf, size_t len)

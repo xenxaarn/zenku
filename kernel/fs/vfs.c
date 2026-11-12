@@ -446,6 +446,17 @@ void vfs_fdtable_select(int id)
     g_fds = slots;
 }
 
+bool fd_is_console(int fd)
+{
+    struct fd_slot *slot = fd_get(fd);
+
+    if (!slot || slot->kind != FD_DEV || !slot->dev || !slot->dev->name) {
+        return false;
+    }
+    return strcmp(slot->dev->name, "console") == 0 ||
+           strcmp(slot->dev->name, "tty0") == 0;
+}
+
 int fd_fstat(int fd, struct vfs_stat *out)
 {
     struct fd_slot *slot = fd_get(fd);

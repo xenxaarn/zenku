@@ -19,4 +19,11 @@ int devfs_lookup(const char *name, const struct devfs_ops **ops);
 /* Visit every node under /dev. */
 int devfs_list(devfs_dir_cb cb, void *ctx);
 
+/* Queue terminal input for /dev/console readers. The bytes are returned by
+ * the next read(2); an empty queue reports -EAGAIN so a blocked reader can be
+ * retried. */
+void devfs_console_push(const char *data, size_t len);
+void devfs_console_push_eof(void);
+bool devfs_console_pending(void);
+
 #endif /* ZENKU_DEVFS_H */

@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 5 in progress (scheduler, fork/exec/wait complete; shell next)
+**Status:** Phase 5 in progress (scheduler, fork/exec/wait, interactive shell)
 **Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
 **Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
@@ -787,8 +787,13 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
 * [x] Shared `crt0`, user ABI header; `init`, `echo`.
 * [ ] Tiny libc + `sh`, `ls`, `cat`, `pwd`, `ps`, `kill`, `sleep`, `uname`,
   `clear`, `wc`, `head`.
+  **Partial:** `sh`, `cat`, and `uname` exist; the shell has `exit`/`help`
+  builtins. The remaining coreutils and a shared libc are still open.
 * [ ] Shell pipelines, redirection, builtins, external exec via `PATH=/bin`.
+  **Partial:** external exec through `/bin`, line editing, and blocking console
+  reads work; pipelines and redirection are not implemented yet.
 * [x] `make test-proc`: fork/exec/wait, fd inheritance, timer preemption.
+* [x] `make test-sh`: shell builtins, external commands, and clean exit.
 * [ ] Stress tests: 100 sequential forks, COW write separation, fork bomb
   capped by a process limit, exec failure rollback.
 

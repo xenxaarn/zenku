@@ -1,4 +1,5 @@
 #include <arch/x86_64/idt.h>
+#include <console.h>
 #include <errno.h>
 #include <kio.h>
 #include <mm/vmm.h>
@@ -182,6 +183,11 @@ void syscall_dispatch(struct regs *r)
     switch (r->rax) {
     case SYS_read:
         ret = sys_read((int)r->rdi, r->rsi, r->rdx);
+        if (ret == -EAGAIN && fd_is_console((int)r->rdi)) {
+            console_set_user_input(true);
+            process_block_io(r);
+            return;
+        }
         break;
     case SYS_write:
         ret = sys_write((int)r->rdi, r->rsi, r->rdx);

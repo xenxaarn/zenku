@@ -9,7 +9,7 @@ The kernel codename is **Thunder**.
 
 ## Status: Phase 5 in progress
 
-Phase 5 has the process core working:
+Phase 5 has the process core and an interactive userland shell working:
 
 - per-process PML4 address spaces: the kernel half is shared, user-space PML4
   entries are private, and each process has its own 16 KiB kernel stack
@@ -25,11 +25,17 @@ Phase 5 has the process core working:
   `/bin/echo` loaded from the ext2 rootfs
 - `/init` demonstrates fork + exec + wait, pipe inheritance across fork, exit
   statuses, and timer preemption
-- kernel command `ps`; `make test-proc` covers fork/exec/wait and preemption
+- `/bin/sh`: prompt, line input, `exit`/`help` builtins, and external commands
+  launched from `/bin` with fork/exec/wait
+- `/bin/cat` and `/bin/uname` coreutils; kernel command `sh` starts the shell
+- terminal input ring in devfs: console reads block on `EAGAIN` while pipes
+  stay non-blocking, and the scheduler idle loop keeps PS/2 and COM1 input
+  flowing whenever every process is waiting
+- `make test-proc` and `make test-sh` cover processes and the interactive path
 
 Still on the Phase 5 list: COW page refcounts, `brk`/`mmap`, a richer libc,
-the interactive `sh` with pipelines and redirection, more coreutils, and the
-fork-bomb/stress tests.
+more coreutils, shell pipelines and redirection, and the fork-bomb/stress
+tests.
 
 ## Phase 4: filesystem and user mode
 
@@ -169,6 +175,7 @@ make test-serial     # type 'help' over COM1 IRQ4, check the console
 make test-fs         # list, cat, and stat files on the ext2 rootfs
 make test-user       # run /init in ring 3, check syscalls and exit
 make test-proc       # fork/exec/wait, pipe inheritance, timer preemption
+make test-sh         # /bin/sh builtins, external commands, and exit
 make check           # fast syntax check of C/asm/shell/python sources
 make check-link      # syntax check plus stage3 and kernel link checks
 make layout          # validate the boot image layout

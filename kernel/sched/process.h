@@ -25,6 +25,7 @@ struct process {
     int exit_status;
     int wait_pid;
     uint64_t wait_status_ptr;
+    bool block_io;
     uint64_t pml4_phys;
     uint8_t *kstack;
     uint64_t kstack_top;
@@ -48,6 +49,11 @@ void process_wait(struct regs *frame, int pid, uint64_t status_ptr);
 void process_exit(struct regs *frame, int status);
 void process_yield(struct regs *frame);
 void process_tick(struct regs *frame);
+
+/* Block the current process on a non-blocking device read. The syscall is
+ * retried when process_wake_io() marks it runnable again. */
+void process_block_io(struct regs *frame);
+void process_wake_io(void);
 
 int process_getpid(void);
 int process_getppid(void);

@@ -3,6 +3,7 @@
 #include <compiler.h>
 #include <console.h>
 #include <errno.h>
+#include <idle.h>
 #include <kio.h>
 #include <mm/heap.h>
 #include <mm/pmm.h>
@@ -241,6 +242,16 @@ static struct process *pick_next(void)
     return NULL;
 }
 
+static bool has_io_waiters(void)
+{
+    for (int i = 0; i < PROCESS_MAX; i++) {
+        if (g_procs[i].state == PROC_BLOCKED && g_procs[i].block_io) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Save the current frame, choose a runnable process, and overwrite *frame
  * with its saved register set. Returning to isr.asm's epilogue then iretq's
  * into the new process. */
@@ -259,6 +270,15 @@ static void process_schedule(struct regs *frame)
     }
 
     next = pick_next();
+
+    /* Every runnable process is gone, but somebody is blocked on terminal
+     * input. Keep the machine interactive (mouse, keyboard, serial) until
+     * input or a timer event wakes one of them. */
+    while (!next && has_io_waiters()) {
+        idle_poll();
+        next = pick_next();
+    }
+
     if (!next) {
         graveyard_process(prev);
         g_current = NULL;
@@ -382,6 +402,7 @@ int process_run(const char *path)
     g_quantum = 0;
     vfs_fdtable_select(0);
     tss_set_rsp0(saved_rsp0);
+    console_set_user_input(false);
     return 0;
 }
 
@@ -497,6 +518,7 @@ void process_wait(struct regs *frame, int pid, uint64_t status_ptr)
      * original register frame, so the kernel stack can be discarded. */
     p->wait_pid = pid;
     p->wait_status_ptr = status_ptr;
+    p->block_io = false;
     p->state = PROC_BLOCKED;
     frame->rip -= 2; /* int 0x80 is two bytes */
     process_schedule(frame);
@@ -549,6 +571,31 @@ void process_yield(struct regs *frame)
     }
     frame->rax = 0;
     process_schedule(frame);
+}
+
+void process_block_io(struct regs *frame)
+{
+    struct process *p = g_current;
+
+    if (!p || !frame) {
+        return;
+    }
+    p->block_io = true;
+    p->state = PROC_BLOCKED;
+    frame->rip -= 2; /* int 0x80 is two bytes; retry after the wake */
+    process_schedule(frame);
+}
+
+void process_wake_io(void)
+{
+    for (int i = 0; i < PROCESS_MAX; i++) {
+        struct process *p = &g_procs[i];
+
+        if (p->state == PROC_BLOCKED && p->block_io) {
+            p->block_io = false;
+            p->state = PROC_READY;
+        }
+    }
 }
 
 void process_tick(struct regs *frame)

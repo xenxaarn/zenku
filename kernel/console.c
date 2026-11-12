@@ -1,4 +1,5 @@
 #include <console.h>
+#include <devfs.h>
 #include <errno.h>
 #include <ext2.h>
 #include <fb.h>
@@ -54,6 +55,13 @@ static int g_scroll_offset;
 
 static struct tty g_tty;
 
+/* Input routed to a user process. Line editing is intentionally simple: the
+ * echo follows the typed text at the cursor, and a completed line is queued
+ * for /dev/console readers. */
+static bool g_user_input;
+static char g_user_line[TTY_LINE_MAX];
+static unsigned g_user_len;
+
 /* Minimal ANSI SGR state machine: ESC [ params m. */
 static int g_ansi_state;
 static char g_ansi_params[16];
@@ -67,6 +75,19 @@ int console_columns(void)
 int console_rows(void)
 {
     return g_rows;
+}
+
+void console_set_user_input(bool enabled)
+{
+    g_user_input = enabled;
+    g_user_len = 0;
+    tty_reset_line(&g_tty);
+    g_scroll_offset = 0;
+}
+
+bool console_user_input(void)
+{
+    return g_user_input;
 }
 
 void console_set_fg(uint32_t rgb)
@@ -729,7 +750,7 @@ static void command_run(void)
 
     if (strcmp(g_line, "help") == 0) {
         console_puts("commands: help, fetch, colors, ls, cat, stat, devtest, "
-                     "init, ps, mem, ticks, uptime, version, clear\n");
+                     "init, sh, ps, mem, ticks, uptime, version, clear\n");
     } else if (strcmp(g_line, "fetch") == 0) {
         command_fetch();
     } else if (strncmp(g_line, "ls", 2) == 0 &&
@@ -762,6 +783,14 @@ static void command_run(void)
             (void)process_run("/init");
         } else {
             console_puts("init: root filesystem not mounted\n");
+        }
+    } else if (strcmp(g_line, "sh") == 0) {
+        if (vfs_ready()) {
+            if (process_run("/bin/sh") != 0) {
+                console_puts("sh: cannot start /bin/sh\n");
+            }
+        } else {
+            console_puts("sh: root filesystem not mounted\n");
         }
     } else if (strcmp(g_line, "ps") == 0) {
         console_puts("  pid ppid state  name\n");
@@ -818,6 +847,53 @@ static void console_scroll(int lines)
     console_render();
 }
 
+static void console_user_key(int key)
+{
+    if (key == '\n' || key == '\r') {
+        g_user_line[g_user_len++] = '\n';
+        devfs_console_push(g_user_line, g_user_len);
+        g_user_len = 0;
+        console_putc('\n');
+        tty_reset_line(&g_tty);
+        return;
+    }
+
+    if (key == 4) { /* Ctrl-D: end of file on an empty line, flush otherwise */
+        if (g_user_len == 0) {
+            devfs_console_push_eof();
+        } else {
+            g_user_line[g_user_len++] = '\n';
+            devfs_console_push(g_user_line, g_user_len);
+            g_user_len = 0;
+            console_putc('\n');
+            tty_reset_line(&g_tty);
+        }
+        return;
+    }
+
+    if (key == 3) { /* Ctrl-C: discard the line */
+        console_puts("^C\n");
+        g_user_len = 0;
+        tty_reset_line(&g_tty);
+        return;
+    }
+
+    if (key == '\b' || key == 0x7F) {
+        if (g_user_len > 0) {
+            g_user_len--;
+            console_putc('\b');
+            console_putc(' ');
+            console_putc('\b');
+        }
+        return;
+    }
+
+    if (key >= 32 && key <= 126 && g_user_len < sizeof(g_user_line) - 1) {
+        g_user_line[g_user_len++] = (char)key;
+        console_putc((char)key);
+    }
+}
+
 void console_input(int key)
 {
     if (key == KEY_PGUP) {
@@ -829,6 +905,11 @@ void console_input(int key)
         return;
     }
     if (key < 0) {
+        return;
+    }
+
+    if (g_user_input) {
+        console_user_key(key);
         return;
     }
 
