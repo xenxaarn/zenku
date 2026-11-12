@@ -4,7 +4,7 @@
 **Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
 **Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
-**Default name:** `Zenku`, kernel codename `Raijin` (branding centralized in `include/version.h`)
+**Default name:** `Zenku`, kernel codename `Thunder` (branding centralized in `include/version.h`)
 
 ---
 
@@ -38,12 +38,12 @@ Honest effort estimate: **9 phases, roughly 20–25 focused work sessions**.
 ## 2. Name
 
 The project is **Zenku** (repository `projects/zenku`), kernel codename
-**Raijin**. The alternatives below remain on record in case of a future rename;
+**Thunder**. The alternatives below remain on record in case of a future rename;
 branding is centralized in `include/version.h`.
 
 | Name | Meaning / rationale |
 |---|---|
-| **Raijin** | Japanese thunder god; matches Zenitsu's Thunder Breathing |
+| **Thunder** | English name for the thunder-god motif; matches Zenitsu's Thunder Breathing |
 | **Zenku** | Zenitsu + kernel; short, unique binary/tag name |
 | **Zenith** | "highest point"; fits a kernel linked at the top of the address space |
 | **Denkō** | "lightning" |
@@ -726,10 +726,12 @@ readable panic; `make test` reports `ALL TESTS PASSED`; no frame leaks after
 
 * Robust serial driver (IRQ4 RX, TX ring), log tags.
 * PS/2 controller init, keyboard decoding (shift/ctrl/alt, E0, repeat), mouse
-  packet decoding, IRQ1/IRQ12.
+  packet decoding, IRQ1/IRQ12. **Done:** keyboard, packet decode, IRQ12, and a
+  software cursor; repeat and click actions still open.
 * Framebuffer double buffer, draw primitives, font, VT100 console, scrollback,
   line discipline, tty layer.
 * Desktop skeleton: wallpaper, top bar, terminal window, mouse cursor, clock.
+  **Done:** wallpaper, top bar, terminal window, cursor. Clock open.
 * Serial input mirrors keyboard input into the active tty.
 
 **Accept:** typing appears in the graphical terminal and over serial; mouse
@@ -923,10 +925,10 @@ and long mode; stage3 loads the ELF64 kernel from ext2 and builds the direct
 and higher-half maps; the kernel draws the splash and reports over COM1.
 `make run` shows the splash, `make test` exits 33.
 
-Phase 3 is in progress: the PS/2 keyboard, non-blocking serial input,
-framebuffer console, desktop skeleton, and interactive command prompt are
-implemented and covered by `make test-input`. Remaining work: serial RX
-interrupts, the PS/2 mouse and cursor, double buffering/scrollback, the tty
+Phase 3 is in progress: the PS/2 keyboard and mouse (with cursor),
+non-blocking serial input, framebuffer console, desktop skeleton, and
+interactive command prompt are implemented and covered by `make test-input`.
+Remaining work: serial RX interrupts, double buffering/scrollback, the tty
 line-discipline layer, and the clock.
 
 Every phase ends with `make test` passing and `make run` producing a usable

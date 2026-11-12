@@ -108,6 +108,24 @@ void fb_fill_rect(int x, int y, int w, int h, uint32_t rgb)
     }
 }
 
+uint32_t fb_raw_get(int x, int y)
+{
+    if (!g_fb.ready || x < 0 || y < 0 ||
+        (uint32_t)x >= g_fb.width || (uint32_t)y >= g_fb.height) {
+        return 0;
+    }
+    return g_fb.addr[(uint64_t)y * g_fb.pitch_pixels + (uint32_t)x];
+}
+
+void fb_raw_set(int x, int y, uint32_t value)
+{
+    if (!g_fb.ready || x < 0 || y < 0 ||
+        (uint32_t)x >= g_fb.width || (uint32_t)y >= g_fb.height) {
+        return;
+    }
+    g_fb.addr[(uint64_t)y * g_fb.pitch_pixels + (uint32_t)x] = value;
+}
+
 void fb_scroll_up(int x, int y, int w, int h, int pixels, uint32_t rgb)
 {
     if (!g_fb.ready || pixels <= 0 || pixels >= h) {
@@ -208,10 +226,10 @@ void fb_splash(const struct boot_info *bi)
     fb_fill_rect(0, height - 6, width, 6, 0x2A6FDB);
 
     fb_text("ZENKU", 64, 72, 6, 0xFFFFFF, bg);
-    fb_text("Raijin", 68, 180, 3, 0x4FC3F7, bg);
+    fb_text("Thunder", 68, 180, 3, 0x4FC3F7, bg);
     fb_text("higher-half kernel running", 68, 236, 2, 0xB0BEC5, bg);
 
-    fb_text("Zenku 0.0.1 - Raijin", 68, 290, 1, 0x90A4AE, bg);
+    fb_text("Zenku 0.0.1 - Thunder", 68, 290, 1, 0x90A4AE, bg);
 
     for (unsigned i = 0; i < ARRAY_SIZE(bars); i++) {
         fb_fill_rect(68 + (int)i * 48, 330, 40, 40, bars[i]);

@@ -5,7 +5,7 @@ from scratch in C and x86_64 assembly. It targets BIOS first (SeaBIOS and real
 hardware), adds a UEFI path later, and boots from a single `os.iso` that
 contains the bootloader, the kernel, and a read-only ext2 root filesystem.
 
-The kernel codename is **Raijin**.
+The kernel codename is **Thunder**.
 
 ## Status: Phase 3 (in progress)
 
@@ -14,13 +14,15 @@ Phase 3 has started with the interactive path:
 - PS/2 controller and keyboard (IRQ1), US layout, shift/ctrl/alt/caps, and
   extended arrow/navigation keys
 - non-blocking COM1 receive, mirrored into the console
+- PS/2 mouse (IRQ12): packet decoding, on-screen arrow cursor drawn in the
+  main context, clamped to the framebuffer
 - framebuffer text console with wrapping, scrolling, backspace, and tabs
 - desktop skeleton: wallpaper, taskbar, terminal window, and a live prompt
 - built-in commands: `help`, `mem`, `ticks`, `version`, `clear`
-- `make test-input` types `help` through the QEMU monitor and checks the
-  console path end to end
+- `make test-input` types `help` and moves the mouse through the QEMU monitor,
+  checking console and pointer paths end to end
 
-Still to come in Phase 3: serial RX interrupts, PS/2 mouse, double buffering,
+Still to come in Phase 3: serial RX interrupts, double buffering/scrollback,
 a tty/line-discipline layer, clock, and richer desktop chrome.
 
 Phase 2 made the kernel safe to fault and gave it memory to work with:
@@ -48,7 +50,7 @@ Phase 1 completed the boot chain up to a running higher-half kernel:
   identity map, the 4 GiB direct map, and the 512 MiB kernel map, then hands
   off through a versioned `boot_info`
 - the kernel runs at `0xFFFFFFFF80000000`, reports E820/framebuffer/initrd over
-  COM1, and draws the Zenku/Raijin splash
+  COM1, and draws the Zenku/Thunder splash
 
 Phase 3 adds serial RX, PS/2 keyboard/mouse, the framebuffer console, and the
 desktop skeleton.
@@ -136,7 +138,7 @@ stage3: kernel phys 0x200000 size 0x6250 entry 0xffffffff80200000
 stage3: paging ready (physmap 0xffff800000000000, kernel 0xffffffff80000000)
 stage3: jumping to kernel
 ZENKU KERNEL OK
-kernel: Zenku 0.0.1 (Raijin), 64-bit higher half
+kernel: Zenku 0.0.1 (Thunder), 64-bit higher half
 kernel: e820 7 entries, usable 2047 MiB
 kernel: framebuffer 1024x768 32bpp pitch 4096 at 0xfd000000
 pmm: 2047 usable MiB, 1048576 frames tracked, 515743 free (2014 MiB)
@@ -152,7 +154,7 @@ kernel: idt 256 vectors, pic remapped to 0x20/0x28
 kernel: pit configured at 100 Hz
 kernel: enabling interrupts
 kernel: timer running (11 ticks)
-Zenku 0.0.1 (Raijin) - higher-half kernel
+Zenku 0.0.1 (Thunder) - higher-half kernel
 memory managers online, PS/2 keyboard ready
 type 'help' for commands
 

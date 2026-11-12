@@ -11,7 +11,8 @@ LOG=$(mktemp "${TMPDIR:-/tmp}/zenku-input.XXXXXX")
 trap 'rm -f "$LOG"' EXIT
 
 if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
-    --wait 8 --keys "h,e,l,p,ret" > "$LOG" 2>&1; then
+    --wait 20 --wait-line "desktop: terminal ready" \
+    --keys "h,e,l,p,ret" --mouse "200,120" > "$LOG" 2>&1; then
     echo "run-input-test: probe failed"
     cat "$LOG"
     exit 1
@@ -27,5 +28,10 @@ if ! grep -q "commands: help, mem, ticks, version, clear" "$LOG"; then
     tail -20 "$LOG"
     exit 1
 fi
+if ! grep -q "mouse: pointer active" "$LOG"; then
+    echo "FAIL: mouse packets did not reach the desktop"
+    tail -20 "$LOG"
+    exit 1
+fi
 
-echo "PASS: PS/2 keyboard input reached the console and ran 'help'"
+echo "PASS: PS/2 keyboard and mouse reached the desktop console"

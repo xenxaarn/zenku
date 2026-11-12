@@ -72,6 +72,9 @@ def main() -> int:
     ap.add_argument("--wait", type=float, default=4.0)
     ap.add_argument("--screendump", default="", help="save a framebuffer image")
     ap.add_argument("--keys", default="", help="comma-separated sendkey names")
+    ap.add_argument("--mouse", default="", help="relative mouse move as dx,dy")
+    ap.add_argument("--wait-line", default="",
+                    help="wait for this serial line before monitor commands")
     args = ap.parse_args()
 
     iso = os.path.abspath(args.iso)
@@ -97,11 +100,27 @@ def main() -> int:
     )
 
     try:
-        time.sleep(args.wait)
+        if args.wait_line:
+            deadline = time.time() + args.wait
+            while time.time() < deadline:
+                try:
+                    with open(serial, "rb") as f:
+                        seen = f.read().decode("latin-1")
+                except OSError:
+                    seen = ""
+                if args.wait_line in seen:
+                    time.sleep(0.5)
+                    break
+                time.sleep(0.05)
+        else:
+            time.sleep(args.wait)
         n = args.len
         cmds = []
         if args.keys:
             cmds += ["sendkey " + key for key in args.keys.split(",")]
+        if args.mouse:
+            dx, dy = args.mouse.split(",")
+            cmds.append(f"mouse_move {dx} {dy}")
         if args.screendump:
             cmds.append(f"screendump {os.path.abspath(args.screendump)}")
         cmds += [

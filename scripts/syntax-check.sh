@@ -180,7 +180,7 @@ for file in "${C_FILES[@]}"; do
     boot/stage3/*|fs/*|lib/*) check_c stage3 "$STAGE3_CFLAGS" "$file" ;;
     esac
     case "$file" in
-    kernel/*|fs/*|lib/*) check_c kernel "$KERNEL_CFLAGS" "$file" ;;
+    kernel/*|drivers/*|fs/*|lib/*) check_c kernel "$KERNEL_CFLAGS" "$file" ;;
     esac
     if [ -n "$USER_CFLAGS" ]; then
         case "$file" in

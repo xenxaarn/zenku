@@ -2,6 +2,7 @@
 #include <fb.h>
 #include <kio.h>
 #include <mm/pmm.h>
+#include <mouse.h>
 #include <pit.h>
 #include <ps2.h>
 #include <string.h>
@@ -47,10 +48,12 @@ void console_set_fg(uint32_t rgb)
 
 void console_clear(void)
 {
+    mouse_cursor_hide();
     fb_fill_rect(g_x, g_y, g_cols * g_cell_w, g_rows * g_cell_h, COLOR_BG);
     g_col = 0;
     g_row = 0;
     g_line_len = 0;
+    mouse_cursor_show();
 }
 
 void console_init(int x, int y, int width, int height, int scale)
@@ -87,7 +90,7 @@ static void newline(void)
     }
 }
 
-void console_putc(char c)
+static void console_putc_inner(char c)
 {
     int px;
     int py;
@@ -111,7 +114,7 @@ void console_putc(char c)
     }
     if (c == '\t') {
         do {
-            console_putc(' ');
+            console_putc_inner(' ');
         } while (g_col != 0 && (g_col % 4) != 0);
         return;
     }
@@ -128,6 +131,13 @@ void console_putc(char c)
     fb_char(c, px, py, g_scale, g_fg, COLOR_BG);
     serial_putc(c);
     g_col++;
+}
+
+void console_putc(char c)
+{
+    mouse_cursor_hide();
+    console_putc_inner(c);
+    mouse_cursor_show();
 }
 
 void console_puts(const char *s)
@@ -187,7 +197,7 @@ static void command_run(void)
         put_uint(pit_ticks());
         console_putc('\n');
     } else if (strcmp(g_line, "version") == 0) {
-        console_puts("Zenku 0.0.1 - Raijin, 64-bit higher half\n");
+        console_puts("Zenku 0.0.1 - Thunder, 64-bit higher half\n");
     } else if (strcmp(g_line, "clear") == 0) {
         console_clear();
         console_prompt();

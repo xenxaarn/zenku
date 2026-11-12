@@ -12,6 +12,7 @@
 #include <mm/heap.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include <mouse.h>
 #include <pic.h>
 #include <pit.h>
 #include <ps2.h>
@@ -169,10 +170,18 @@ void kmain(struct boot_info *bi)
 #endif
 
     kprintf("kernel: entering idle loop\n");
+    bool mouse_reported = false;
     for (;;) {
         int key;
 
         __asm__ volatile("sti; hlt" : : : "memory");
+
+        mouse_poll();
+        if (!mouse_reported && mouse_packets() > 0) {
+            kprintf("mouse: pointer active (%llu packets)\n",
+                    mouse_packets());
+            mouse_reported = true;
+        }
 
         while ((key = keyboard_pop()) >= 0) {
             console_input(key);

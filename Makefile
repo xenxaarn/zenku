@@ -16,7 +16,7 @@ KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
                 kernel/arch/x86_64/gdt.c kernel/arch/x86_64/idt.c \
                 kernel/arch/x86_64/irq.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
-                drivers/pic.c drivers/pit.c drivers/ps2.c \
+                drivers/pic.c drivers/pit.c drivers/ps2.c drivers/mouse.c \
                 lib/string.c lib/kio.c
 KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
                 kernel/arch/x86_64/gdt_flush.asm \

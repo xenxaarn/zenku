@@ -3,6 +3,7 @@
 #include <desktop.h>
 #include <fb.h>
 #include <kio.h>
+#include <mouse.h>
 #include <types.h>
 #include <version.h>
 
@@ -61,20 +62,22 @@ void desktop_init(const struct boot_info *bi)
     fb_fill_rect(wx, wy, 1, wh, WINDOW_EDGE);
     fb_fill_rect(wx + ww - 1, wy, 1, wh, WINDOW_EDGE);
 
-    fb_text("raijin console", wx + 12, wy + 7, 1, TEXT_BRIGHT, WINDOW_BG);
+    fb_text("thunder console", wx + 12, wy + 7, 1, TEXT_BRIGHT, WINDOW_BG);
 
     fb_fill_rect(wx + ww - 66, wy + 10, 9, 9, 0x81C784);
     fb_fill_rect(wx + ww - 48, wy + 10, 9, 9, 0xFFF176);
     fb_fill_rect(wx + ww - 30, wy + 10, 9, 9, 0xFF7B72);
 
     console_init(cx, cy, ww - 24, wh - 50, 1);
-    console_puts("Zenku 0.0.1 (Raijin) - higher-half kernel\n");
+    console_puts("Zenku 0.0.1 (Thunder) - higher-half kernel\n");
     console_puts("memory managers online, PS/2 keyboard ready\n");
     console_puts("type 'help' for commands\n\n");
     console_prompt();
 
     g_ready = true;
-    kprintf("desktop: terminal ready (%dx%d cells)\n",
+
+    mouse_init();
+    kprintf("desktop: terminal ready (%dx%d cells), mouse ready\n",
             console_columns(), console_rows());
 }
 

@@ -30,7 +30,7 @@ cat > "$STAGE/README" <<'EOF'
 Zenku root filesystem.
 
 Read-only ext2 image built by scripts/mkrootfs.sh.
-/kernel is the Raijin kernel ELF image.
+/kernel is the Thunder kernel ELF image.
 EOF
 
 mkdir -p "$(dirname "$OUT")"

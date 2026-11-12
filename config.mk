@@ -3,7 +3,7 @@
 
 PROJECT       := zenku
 OS_NAME       := Zenku
-OS_CODENAME   := Raijin
+OS_CODENAME   := Thunder
 OS_VERSION    := 0.0.1
 ISO_LABEL     := ZENKU
 
