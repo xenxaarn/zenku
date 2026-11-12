@@ -53,5 +53,12 @@ require() {
 require "ZENKU STAGE1 OK"
 require "boot drive: 0x"
 require "ZENKU STAGE2 OK"
+require "stage2: unreal mode ready"
+require "stage2: e820 entries 0x"
+require "stage2: ISO9660 mounted"
+require "stage2: stage3 loaded at 0x20000"
+require "stage2: ROOT.EXT2 loaded at 0x04000000"
+require "stage2: VBE mode 0x"
+require "ZENKU STAGE3 OK (long mode)"
 
-echo "PASS: boot chain reached stage2"
+echo "PASS: boot chain reached stage3 in long mode"

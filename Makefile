@@ -7,12 +7,15 @@ STAGE1_SRC  := boot/stage1/stage1.asm
 STAGE2_SRC  := boot/stage2/entry.asm
 STAGE2_BIN  := $(BUILD)/boot/stage2.bin
 STAGE2_TEST := $(BUILD)/test/stage2.bin
+STAGE3_SRC  := boot/stage3/entry.asm
+STAGE3_BIN  := $(BUILD)/boot/stage3.bin
+STAGE3_TEST := $(BUILD)/test/stage3.bin
 BOOT_IMAGE  := $(BUILD)/boot/boot.img
 TEST_IMAGE  := $(BUILD)/test/boot.img
 ISO         := $(BUILD)/os.iso
 TEST_ISO    := $(BUILD)/test/os.iso
 
-STAGE2_DEPS := $(STAGE2_SRC) boot/stage2/console.asm
+STAGE2_DEPS := $(wildcard boot/stage2/*.asm) include/boot_offsets.inc
 
 .PHONY: all iso run debug test clean distclean doctor size layout layout-test help boot toolchain
 
@@ -38,6 +41,14 @@ $(STAGE2_TEST): $(STAGE2_DEPS) | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
 	$(NASM) -f bin -I. -dTEST_EXIT -o $@ $(STAGE2_SRC)
 
+$(STAGE3_BIN): $(STAGE3_SRC) | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(NASM) -f bin -Ox -o $@ $(STAGE3_SRC)
+
+$(STAGE3_TEST): $(STAGE3_SRC) | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(NASM) -f bin -Ox -dTEST_EXIT -o $@ $(STAGE3_SRC)
+
 $(BOOT_IMAGE): $(STAGE1_SRC) $(STAGE2_BIN) scripts/build-boot.sh | $(BUILD)/dirs
 	scripts/build-boot.sh $(STAGE1_SRC) $(STAGE2_BIN) $@
 
@@ -49,11 +60,11 @@ $(TEST_IMAGE): $(STAGE1_SRC) $(STAGE2_TEST) scripts/build-boot.sh | $(BUILD)/dir
 # ---------------------------------------------------------------------------
 iso: $(ISO)
 
-$(ISO): $(BOOT_IMAGE) scripts/mkiso.sh
-	scripts/mkiso.sh $(BOOT_IMAGE) $(ISO)
+$(ISO): $(BOOT_IMAGE) $(STAGE3_BIN) scripts/mkiso.sh
+	scripts/mkiso.sh $(BOOT_IMAGE) $(ISO) $(STAGE3_BIN)
 
-$(TEST_ISO): $(TEST_IMAGE) scripts/mkiso.sh
-	scripts/mkiso.sh $(TEST_IMAGE) $(TEST_ISO)
+$(TEST_ISO): $(TEST_IMAGE) $(STAGE3_TEST) scripts/mkiso.sh
+	scripts/mkiso.sh $(TEST_IMAGE) $(TEST_ISO) $(STAGE3_TEST)
 
 # ---------------------------------------------------------------------------
 # Run / debug / test

@@ -34,7 +34,7 @@ trap cleanup EXIT
 
 NASM=${NASM:-nasm}
 # shellcheck disable=SC2086
-"$NASM" -f bin -I"$ROOT" -DSTAGE2_BYTES="$SIZE" $EXTRA_FLAGS \
+"$NASM" -f bin -Ox -I"$ROOT" -DSTAGE2_BYTES="$SIZE" $EXTRA_FLAGS \
     -o "$TMP/stage1.bin" "$STAGE1_ASM"
 
 STAGE1_SIZE=$(stat -c%s "$TMP/stage1.bin")

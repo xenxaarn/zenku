@@ -90,6 +90,28 @@ s2_serial_hex8:
     call s2_serial_putc
     ret
 
+; AX = word, four hex digits
+s2_serial_hex16:
+    push ax
+    mov al, ah
+    call s2_serial_hex8
+    pop ax
+    call s2_serial_hex8
+    ret
+
+; EAX = dword, eight hex digits
+s2_serial_hex32:
+    push eax
+    push bx
+    mov ebx, eax
+    shr eax, 16
+    call s2_serial_hex16
+    mov eax, ebx
+    call s2_serial_hex16
+    pop bx
+    pop eax
+    ret
+
 s2_serial_flush:
     push ax
     push dx
