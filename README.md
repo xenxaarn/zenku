@@ -7,9 +7,24 @@ contains the bootloader, the kernel, and a read-only ext2 root filesystem.
 
 The kernel codename is **Raijin**.
 
-## Status: Phase 1
+## Status: Phase 2
 
-Phase 1 completes the boot chain up to a running higher-half kernel:
+Phase 2 makes the kernel safe to fault and gives it memory to work with:
+
+- GDT/TSS with a dedicated double-fault IST stack
+- 256-entry IDT with stubs for all CPU exceptions and 16 PIC IRQs
+- readable panic dumps (vector, error, registers, RIP/RSP, CR0/CR2/CR3/CR4)
+- PIC remapped to `0x20/0x28`, PIT running at 100 Hz
+- bitmap physical frame allocator built from E820, with reserved boot/MMIO
+  regions
+- 4 KiB virtual memory manager (map/unmap/protect/translate) on the stage3
+  page tables
+- 16 MiB kernel heap with split/coalesce `kmalloc`/`kfree`/`krealloc`
+- boot self-tests for PMM leaks, VMM mappings, and heap coalescing
+- `make test-faults` injects `#DE`, `#UD`, `#GP`, and `#PF` and checks that
+  each produces a readable panic
+
+Phase 1 completed the boot chain up to a running higher-half kernel:
 
 - stage1 reads the stage2 payload from the El Torito extent
 - stage2 collects E820, copies the BIOS 8x16 font, reads ISO9660, loads
@@ -21,8 +36,8 @@ Phase 1 completes the boot chain up to a running higher-half kernel:
 - the kernel runs at `0xFFFFFFFF80000000`, reports E820/framebuffer/initrd over
   COM1, and draws the Zenku/Raijin splash
 
-Phase 2 adds GDT/TSS/IDT, exception handling, PIC/PIT, and physical/virtual
-memory management.
+Phase 3 adds serial RX, PS/2 keyboard/mouse, the framebuffer console, and the
+desktop skeleton.
 
 The full 9-phase plan is in [`docs/PLAN.md`](docs/PLAN.md). The current boot
 media contract is documented in [`docs/boot-protocol.md`](docs/boot-protocol.md).
@@ -33,8 +48,8 @@ media contract is documented in [`docs/boot-protocol.md`](docs/boot-protocol.md)
 |---|---|---|
 | 0 | Build system, stage1, ISO, serial test harness | **Complete** |
 | 1 | Stage1→stage2→stage3, E820/VBE/ISO9660, ext2+ELF64, long mode, higher-half kernel | **Complete** |
-| 2 | GDT/TSS/IDT, exceptions, PIC/PIT, PMM/VMM/heap | Next |
-| 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | Pending |
+| 2 | GDT/TSS/IDT, exceptions, PIC/PIT, PMM/VMM/heap | **Complete** |
+| 3 | Serial, PS/2 keyboard/mouse, framebuffer console, desktop skeleton | Next |
 | 4 | VFS, ext2 mount, ring 3, core syscalls | Pending |
 | 5 | Scheduler, COW fork, exec/wait, libc, shell, coreutils | Pending |
 | 6 | Graphical desktop, terminal window, mouse UI | Pending |
@@ -73,6 +88,7 @@ sudo dnf install gmp-devel mpfr-devel libmpc-devel bison flex texinfo
 make                 # builds build/os.iso
 make run             # qemu-system-x86_64 -cdrom build/os.iso -m 2G -serial stdio
 make test            # headless boot; checks serial output and exit status
+make test-faults     # inject #DE/#UD/#GP/#PF and check the panic path
 make check           # fast syntax check of C/asm/shell/python sources
 make check-link      # syntax check plus stage3 and kernel link checks
 make layout          # validate the boot image layout
@@ -108,7 +124,20 @@ ZENKU KERNEL OK
 kernel: Zenku 0.0.1 (Raijin), 64-bit higher half
 kernel: e820 7 entries, usable 2047 MiB
 kernel: framebuffer 1024x768 32bpp pitch 4096 at 0xfd000000
+pmm: 2047 usable MiB, 1048576 frames tracked, 515743 free (2014 MiB)
+vmm: page tables at 0x1000, 4 KiB mappings ready
+heap: 16 MiB mapped at 0xffffffffa0000000 (16383 KiB usable)
+kernel: memory managers ready
+pmm: selftest 10000 alloc/free frames, no leaks
+vmm: selftest map/translate/unmap ok
+heap: selftest 512 alloc/free blocks, no leaks
 kernel: framebuffer banner drawn
+kernel: gdt loaded, tss rsp0 0xffffffff80240600, double-fault IST ready
+kernel: idt 256 vectors, pic remapped to 0x20/0x28
+kernel: pit configured at 100 Hz
+kernel: enabling interrupts
+kernel: timer running (11 ticks)
+kernel: ALL TESTS PASSED
 kernel: entering idle loop
 ```
 

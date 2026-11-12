@@ -25,6 +25,7 @@ _start:
     jmp .halt
 
 section .bss
+global boot_stack_top
 align 16
 boot_stack:
     resb 16384

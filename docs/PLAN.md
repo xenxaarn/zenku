@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 1 complete; Phase 2 next
+**Status:** Phase 2 complete; Phase 3 next
 **Project root:** `/home/xen/projects/zenku` — every source file, script, build artifact, and doc lives here.
 **Plan file:** this document is the canonical plan in the repository. A working copy is kept in `/home/xen/.opencode/plan/` while planning.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
@@ -709,7 +709,7 @@ cleanly with `make test` (stage1 test build writes `isa-debug-exit`).
 serial; logs list E820 regions, VBE mode, initrd location, kernel high address;
 a deliberate ELF corruption produces a clean stage3 error, not a triple fault.
 
-### Phase 2 — CPU, memory management, interrupts (≈2 sessions)
+### Phase 2 — CPU, memory management, interrupts (≈2 sessions) — COMPLETE
 
 * GDT/TSS finalization, IDT + all exception stubs, panic with backtrace.
 * PIC remap, PIT 100 Hz, IRQ framework, RTC.
@@ -901,7 +901,11 @@ The backup is kept in `/tmp/opencode` for the remainder of the work. Existing
 
 ## 11. Next action
 
-Phase 1 is complete and verified:
+Phase 2 is complete and verified. In addition to the Phase 1 lines, boot now
+reports the GDT/TSS, IDT, PIC/PIT, PMM, VMM, and heap self-tests, and
+`make test-faults` proves all four fault classes panic cleanly.
+
+Phase 1 handoff for reference:
 
 ```
 ZENKU STAGE3 OK
@@ -919,6 +923,6 @@ and long mode; stage3 loads the ELF64 kernel from ext2 and builds the direct
 and higher-half maps; the kernel draws the splash and reports over COM1.
 `make run` shows the splash, `make test` exits 33.
 
-Phase 2 begins with GDT/TSS finalization, IDT and exception stubs, PIC remap,
-PIT, and the physical/virtual memory managers. Every phase ends with
-`make test` passing and `make run` producing a usable screen.
+Phase 3 begins with serial RX, the PS/2 controller and keyboard/mouse drivers,
+a double-buffered framebuffer console, and the desktop skeleton. Every phase
+ends with `make test` passing and `make run` producing a usable screen.

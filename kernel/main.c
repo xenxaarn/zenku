@@ -1,32 +1,28 @@
+#include <arch/x86_64/gdt.h>
+#include <arch/x86_64/idt.h>
+#include <arch/x86_64/irq.h>
 #include <boot_info.h>
 #include <compiler.h>
 #include <fb.h>
 #include <io.h>
 #include <kio.h>
+#include <kpanic.h>
+#include <mm/heap.h>
+#include <mm/pmm.h>
+#include <mm/vmm.h>
+#include <pic.h>
+#include <pit.h>
 #include <types.h>
 #include <version.h>
 
 #define PHYS_MAP_BASE 0xFFFF800000000000ull
 
+/* Kernel boot stack, defined by arch/x86_64/entry.asm. */
+extern uint8_t boot_stack_top[];
+
 static inline void *phys_to_virt(uint64_t phys)
 {
     return (void *)(uintptr_t)(PHYS_MAP_BASE + phys);
-}
-
-static void kpanic(const char *fmt, ...) NORETURN;
-
-static void kpanic(const char *fmt, ...)
-{
-    va_list ap;
-
-    serial_puts("\nPANIC: ");
-    va_start(ap, fmt);
-    kvprintf(fmt, ap);
-    va_end(ap);
-    serial_puts("\n");
-
-    outb(0x501, 0x20);
-    cpu_halt();
 }
 
 static uint64_t total_usable_memory(const struct boot_info *bi)
@@ -45,6 +41,51 @@ static uint64_t total_usable_memory(const struct boot_info *bi)
         }
     }
     return total;
+}
+
+#ifdef FAULT_TEST
+static void fault_selftest(void)
+{
+#if FAULT_TEST == 0
+    volatile int zero = 0;
+    volatile int one = 1;
+
+    kprintf("kernel: triggering #DE (divide by zero)\n");
+    kprintf("kernel: result %d\n", one / zero);
+#elif FAULT_TEST == 1
+    kprintf("kernel: triggering #UD (ud2)\n");
+    __asm__ volatile("ud2");
+#elif FAULT_TEST == 2
+    kprintf("kernel: triggering #GP (invalid SS load)\n");
+    __asm__ volatile("movw $0x28, %%ax; movw %%ax, %%ss" : : : "rax");
+#elif FAULT_TEST == 3
+    kprintf("kernel: triggering #PF (unmapped kernel write)\n");
+    *(volatile uint64_t *)(uintptr_t)0xFFFFFFFFB0000000ull = 0xDEADBEEFull;
+#endif
+
+    kprintf("kernel: fault selftest returned unexpectedly\n");
+    kpanic("fault selftest (vector %d) did not fault", FAULT_TEST);
+}
+#endif
+
+static void cpu_init(void)
+{
+    gdt_init((uint64_t)(uintptr_t)boot_stack_top);
+    kprintf("kernel: gdt loaded, tss rsp0 0x%llx, double-fault IST ready\n",
+            tss_get_rsp0());
+
+    idt_init();
+    irq_init();
+
+    pic_remap(IDT_IRQ_BASE, IDT_IRQ_BASE + 8);
+    pic_disable();
+    pit_init(100);
+    pic_unmask(0);
+    pic_unmask(2);
+
+    kprintf("kernel: idt %u vectors, pic remapped to 0x%x/0x%x\n",
+            IDT_VECTORS, IDT_IRQ_BASE, IDT_IRQ_BASE + 8);
+    kprintf("kernel: pit configured at %u Hz\n", pit_frequency());
 }
 
 void kmain(struct boot_info *bi)
@@ -76,6 +117,17 @@ void kmain(struct boot_info *bi)
     kprintf("kernel: initrd 0x%llx (%llu bytes), boot drive 0x%llx\n",
             bi->initrd_addr, bi->initrd_size, bi->boot_drive);
 
+    pmm_init(bi);
+    if (vmm_init() != 0) {
+        kpanic("vmm: initialization failed");
+    }
+    heap_init();
+    kprintf("kernel: memory managers ready\n");
+
+    pmm_selftest();
+    vmm_selftest();
+    heap_selftest();
+
     if (bi->flags & BOOT_FLAG_FB) {
         kprintf("kernel: framebuffer %ux%u %ubpp pitch %u at 0x%llx\n",
                 bi->fb_width, bi->fb_height, bi->fb_bpp, bi->fb_pitch,
@@ -90,9 +142,27 @@ void kmain(struct boot_info *bi)
         kprintf("kernel: no framebuffer\n");
     }
 
+    cpu_init();
+#ifdef FAULT_TEST
+    fault_selftest();
+#endif
+    kprintf("kernel: enabling interrupts\n");
+    irq_enable();
+
+    /* Prove the timer actually fires before the kernel idles. */
+    pit_wait_ticks(10);
+    kprintf("kernel: timer running (%llu ticks)\n", pit_ticks());
+
+#ifdef TEST_EXIT
+    kprintf("kernel: ALL TESTS PASSED\n");
+#endif
     kprintf("kernel: entering idle loop\n");
 #ifdef TEST_EXIT
     outb(0x501, 0x10);
-#endif
     cpu_halt();
+#endif
+
+    for (;;) {
+        __asm__ volatile("sti; hlt" : : : "memory");
+    }
 }

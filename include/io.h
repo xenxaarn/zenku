@@ -59,6 +59,7 @@ static inline void cpu_halt(void)
     for (;;) {
         __asm__ volatile("cli; hlt");
     }
+    __builtin_unreachable();
 }
 
 #endif /* ZENKU_IO_H */

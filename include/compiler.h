@@ -1,6 +1,8 @@
 #ifndef ZENKU_COMPILER_H
 #define ZENKU_COMPILER_H
 
+#include <types.h>
+
 #define PACKED      __attribute__((packed))
 #define ALIGNED(n)  __attribute__((aligned(n)))
 #define NORETURN    __attribute__((noreturn))

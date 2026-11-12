@@ -11,8 +11,15 @@ STAGE3_CSRCS := boot/stage3/main.c fs/ext2.c lib/string.c lib/kio.c
 STAGE3_ASMS  := boot/stage3/entry.asm
 STAGE3_LD    := linker/stage3.ld
 
-KERNEL_CSRCS := kernel/main.c kernel/fb.c lib/string.c lib/kio.c
-KERNEL_ASMS  := kernel/arch/x86_64/entry.asm
+KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
+                kernel/arch/x86_64/gdt.c kernel/arch/x86_64/idt.c \
+                kernel/arch/x86_64/irq.c \
+                kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
+                drivers/pic.c drivers/pit.c \
+                lib/string.c lib/kio.c
+KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
+                kernel/arch/x86_64/gdt_flush.asm \
+                kernel/arch/x86_64/isr.asm
 KERNEL_LD    := linker/kernel.ld
 
 STAGE2_BIN      := $(BUILD)/boot/stage2.bin
@@ -35,7 +42,7 @@ KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
 KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
                     $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
 
-.PHONY: all iso run debug test check check-link clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
+.PHONY: all iso run debug test check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
 
 all: iso
 
@@ -115,6 +122,44 @@ $(BUILD)/kernel-test/obj/%.o: %.asm | $(BUILD)/dirs
 
 $(KERNEL_TEST_ELF): $(KERNEL_TEST_OBJS) $(KERNEL_LD)
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T $(KERNEL_LD) -o $@ $(KERNEL_TEST_OBJS)
+
+# ---------------------------------------------------------------------------
+# Fault-injection kernels: one build per exception vector, used by
+# `make test-faults` to prove the IDT/panic path is readable.
+# ---------------------------------------------------------------------------
+FAULT_N   ?= 0
+FAULT_DIR := $(BUILD)/fault/$(FAULT_N)
+FAULT_OBJS := $(patsubst %.c,$(FAULT_DIR)/obj/%.o,$(KERNEL_CSRCS)) \
+              $(patsubst %.asm,$(FAULT_DIR)/obj/%.o,$(KERNEL_ASMS))
+FAULT_KERNEL := $(FAULT_DIR)/kernel.elf
+FAULT_ROOTFS := $(FAULT_DIR)/rootfs.ext2
+FAULT_ISO    := $(FAULT_DIR)/os.iso
+
+$(FAULT_DIR)/obj/%.o: %.c | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(CC) $(KERNEL_CFLAGS) -DFAULT_TEST=$(FAULT_N) -c -o $@ $<
+
+$(FAULT_DIR)/obj/%.o: %.asm | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(NASM) -f elf64 -DFAULT_TEST=$(FAULT_N) -o $@ $<
+
+$(FAULT_KERNEL): $(FAULT_OBJS) $(KERNEL_LD)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T $(KERNEL_LD) -o $@ $(FAULT_OBJS)
+
+$(FAULT_ROOTFS): $(FAULT_KERNEL) scripts/mkrootfs.sh | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	scripts/mkrootfs.sh $(FAULT_KERNEL) $@
+
+$(FAULT_ISO): $(BOOT_IMAGE) $(STAGE3_BIN) $(FAULT_ROOTFS) scripts/mkiso.sh
+	scripts/mkiso.sh $(BOOT_IMAGE) $@ $(STAGE3_BIN) $(FAULT_ROOTFS)
+
+fault-test: $(FAULT_ISO)
+	QEMU=$(QEMU) scripts/run-fault-test.sh $(FAULT_ISO) $(FAULT_N)
+
+test-faults:
+	@set -e; for n in 0 1 2 3; do \
+		$(MAKE) --no-print-directory fault-test FAULT_N=$$n; \
+	done
 
 # ---------------------------------------------------------------------------
 # Root filesystem images
@@ -207,6 +252,7 @@ help:
 	@echo "  run        boot the ISO in QEMU with a graphical display"
 	@echo "  debug      boot under QEMU with a GDB stub (-s -S)"
 	@echo "  test       headless boot + serial assertions"
+	@echo "  test-faults inject #DE/#UD/#GP/#PF and check panics"
 	@echo "  check      fast syntax check of C/asm/shell/python"
 	@echo "  check-link syntax check plus stage3 and kernel links"
 	@echo "  boot       build the boot image only"

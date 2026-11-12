@@ -53,8 +53,17 @@ LD=${LD:-ld}
 STAGE3_CFLAGS=${STAGE3_CFLAGS:-$(make_print STAGE3_CFLAGS)}
 KERNEL_CFLAGS=${KERNEL_CFLAGS:-$(make_print KERNEL_CFLAGS)}
 USER_CFLAGS=${USER_CFLAGS:-$(make_print USER_CFLAGS)}
-if [ -z "$STAGE3_CFLAGS" ] || [ -z "$KERNEL_CFLAGS" ]; then
-    echo "syntax-check: could not read flags from the Makefile" >&2
+
+# Source lists come from the Makefile so the check always covers exactly what
+# the real build compiles.
+STAGE3_CSRCS=${STAGE3_CSRCS:-$(make_print STAGE3_CSRCS)}
+STAGE3_ASMS=${STAGE3_ASMS:-$(make_print STAGE3_ASMS)}
+KERNEL_CSRCS=${KERNEL_CSRCS:-$(make_print KERNEL_CSRCS)}
+KERNEL_ASMS=${KERNEL_ASMS:-$(make_print KERNEL_ASMS)}
+
+if [ -z "$STAGE3_CFLAGS" ] || [ -z "$KERNEL_CFLAGS" ] ||
+   [ -z "$STAGE3_CSRCS" ] || [ -z "$KERNEL_CSRCS" ]; then
+    echo "syntax-check: could not read flags/sources from the Makefile" >&2
     exit 2
 fi
 
@@ -144,17 +153,18 @@ check_python() {
 # Discover sources
 # ---------------------------------------------------------------------------
 SOURCE_DIRS=()
-for dir in boot kernel fs lib user libc; do
+for dir in boot kernel drivers fs lib user libc; do
     [ -d "$dir" ] && SOURCE_DIRS+=("$dir")
 done
 
 mapfile -t C_FILES < <(find "${SOURCE_DIRS[@]}" -name '*.c' -not -path '*/build/*' 2>/dev/null | sort)
-# Only translation-unit assembly: stage1 files and entry.asm. The other
-# stage2 files are %include fragments and cannot be assembled alone.
+# Only translation-unit assembly. The stage2 files are %include fragments and
+# cannot be assembled on their own; stage1 and the kernel/stage3 entry files
+# are complete units.
 mapfile -t ASM_FILES < <(
     {
         find boot/stage1 -name '*.asm' 2>/dev/null
-        find boot kernel -name 'entry.asm' 2>/dev/null
+        find boot/stage3 kernel -name '*.asm' 2>/dev/null
     } | sort
 )
 mapfile -t SH_FILES < <(find scripts -maxdepth 1 -name '*.sh' 2>/dev/null | sort)
@@ -206,25 +216,28 @@ done
 # ---------------------------------------------------------------------------
 if [ "$LINK" -eq 1 ]; then
     link_target() {
-        local name=$1 flags=$2 ldflags=$3 script=$4 entry=$5
-        shift 5
+        local name=$1 flags=$2 ldflags=$3 script=$4
+        shift 4
         local objs=()
         local file obj output
 
-        obj="$TMP/${name}_entry_$(echo "$entry" | tr '/' '_').o"
-        if ! output=$("$NASM" -f elf64 -o "$obj" "$entry" 2>&1); then
-            fail "LD/$name" "$entry" "$output"
-            return 1
-        fi
-        objs+=("$obj")
-
         for file in "$@"; do
             obj="$TMP/${name}_$(echo "$file" | tr '/' '_').o"
-            # shellcheck disable=SC2086
-            if ! output=$("$CC" $flags -c -o "$obj" "$file" 2>&1); then
-                fail "LD/$name" "$file (compile)" "$output"
-                return 1
-            fi
+            case "$file" in
+            *.asm)
+                if ! output=$("$NASM" -f elf64 -o "$obj" "$file" 2>&1); then
+                    fail "LD/$name" "$file" "$output"
+                    return 1
+                fi
+                ;;
+            *.c)
+                # shellcheck disable=SC2086
+                if ! output=$("$CC" $flags -c -o "$obj" "$file" 2>&1); then
+                    fail "LD/$name" "$file (compile)" "$output"
+                    return 1
+                fi
+                ;;
+            esac
             objs+=("$obj")
         done
 
@@ -240,13 +253,13 @@ if [ "$LINK" -eq 1 ]; then
         return 0
     }
 
-    STAGE3_LINK_SRCS=(boot/stage3/main.c fs/ext2.c lib/string.c lib/kio.c)
-    KERNEL_LINK_SRCS=(kernel/main.c kernel/fb.c lib/string.c lib/kio.c)
+    read -ra STAGE3_LINK_SRCS <<< "$STAGE3_ASMS $STAGE3_CSRCS"
+    read -ra KERNEL_LINK_SRCS <<< "$KERNEL_ASMS $KERNEL_CSRCS"
 
     link_target stage3 "$STAGE3_CFLAGS" "-m elf_x86_64" linker/stage3.ld \
-        boot/stage3/entry.asm "${STAGE3_LINK_SRCS[@]}"
+        "${STAGE3_LINK_SRCS[@]}"
     link_target kernel "$KERNEL_CFLAGS" "-m elf_x86_64 -nostdlib -z max-page-size=4096" \
-        linker/kernel.ld kernel/arch/x86_64/entry.asm "${KERNEL_LINK_SRCS[@]}"
+        linker/kernel.ld "${KERNEL_LINK_SRCS[@]}"
 fi
 
 # ---------------------------------------------------------------------------

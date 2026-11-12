@@ -38,6 +38,7 @@ typedef _Bool bool;
 #define INT64_MIN  (-__INT64_MAX__ - 1)
 #define INT64_MAX  __INT64_MAX__
 #define UINT64_MAX __UINT64_MAX__
+#define SIZE_MAX   __SIZE_MAX__
 
 #define PAGE_SIZE 4096ULL
 #define KB(x) ((uint64_t)(x) * 1024ULL)
