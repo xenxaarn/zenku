@@ -4,7 +4,7 @@
 PROJECT       := zenku
 OS_NAME       := Zenku
 OS_CODENAME   := Thunder
-OS_VERSION    := 0.0.1
+OS_VERSION    := 0.1.0
 ISO_LABEL     := ZENKU
 
 BUILD         := build

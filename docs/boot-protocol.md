@@ -75,7 +75,9 @@ The UEFI entry points at `build/efi.img`, a FAT16 image built by
 3. Load each `PT_LOAD` segment into `0x00100000..0x03FFFFFF`, zeroing BSS.
 4. Build page tables at `0x1000`: 1 GiB identity map (reused), 4 GiB direct
    map at `0xFFFF800000000000`, 512 MiB kernel map at `0xFFFFFFFF80000000`.
-5. Fill `boot_info` at `0x7000` and jump to the ELF entry with the physical
+5. Locate the ACPI RSDP in the EBDA or the `0xE0000..0xFFFFF` ROM window and
+   record its physical address in `boot_info.rsdp_addr` (zero if absent).
+6. Fill `boot_info` at `0x7000` and jump to the ELF entry with the physical
    `boot_info` address in `RDI`.
 
 ## UEFI behavior
@@ -100,9 +102,10 @@ declarations in `boot/uefi/efi.h` rather than gnu-efi and reuses
    map, `PML4[256]` direct map sharing the same PDPT, and `PML4[511]` kernel
    map. The PML4 template is copied to physical `0x1000` because the kernel
    ABI fixes `VMM_PML4_PHYS`.
-7. It fills `boot_info` with `BOOT_FLAG_FB | BOOT_FLAG_FONT | BOOT_FLAG_UEFI`,
-   calls `ExitBootServices`, loads CR3, and jumps to the kernel entry with the
-   physical `boot_info` address in `RDI`.
+7. It fills `boot_info` with `BOOT_FLAG_FB | BOOT_FLAG_FONT | BOOT_FLAG_UEFI`
+   and the RSDP physical address found in the UEFI configuration table,
+   calls `ExitBootServices`, loads CR3, and jumps to the kernel entry with
+   the physical `boot_info` address in `RDI`.
 
 The loader sizes the EFI memory map, re-reads it before each
 `ExitBootServices` attempt, and retries with a fresh map key if boot services
@@ -149,8 +152,37 @@ Defined in `include/boot_info.h`. Magic `0x5A454E4B55303031` (`"ZENKU001"`),
 version 1, packed struct. Each loader passes its **physical** address in
 `RDI`; the kernel converts it through the direct map
 (`0xFFFF800000000000 + phys`) and validates magic/version before use. Flags
-report framebuffer (`1`), initrd (`2`), font (`4`), and UEFI firmware (`8`)
-availability.
+report framebuffer (`1`), initrd (`2`), font (`4`), UEFI firmware (`8`), and a
+text-mode boot (`16`) availability. `rsdp_addr` at offset `0x078` carries the
+physical ACPI RSDP address, or zero when none was found.
+
+## ACPI handoff
+
+Both loaders locate the ACPI RSDP before leaving firmware and pass its
+physical address in `boot_info.rsdp_addr`; the kernel validates it again
+before use.
+
+**BIOS path.** Stage3 reads the EBDA segment from `0x40E`, converts it to a
+physical address, and scans the first KiB in 16-byte steps when it falls in
+`0x80000..0x9FFFF`. If that fails it scans `0xE0000..0xFFFFF` in 16-byte
+steps. A candidate must contain `"RSD PTR "`, pass the 20-byte checksum, and
+when its revision is 2 or later also pass the full-length checksum from the
+length field at offset 20. The revision byte is at **offset 15**; offsets
+9..14 hold the OEM ID, not the revision.
+
+**UEFI path.** The loader walks the UEFI configuration table and accepts the
+first ACPI 2.0 or ACPI 1.0 table GUID entry, storing that pointer as the
+physical RSDP address. The firmware keeps the RSDP in ACPI reclaim/NVS
+memory, so the address remains valid after `ExitBootServices`.
+
+**Kernel.** `acpi_init()` revalidates the RSDP checksums, prefers the XSDT
+when the RSDP revision is 2 or later, otherwise uses the RSDT, and scans the
+table for the `FACP` FADT. It records the PM1a/PM1b control registers, the
+extended X_PM1 control registers when present, and the FADT reset register.
+`poweroff` writes the S5 `SLP_TYP` value with `SLP_EN` set and, if the
+platform does not cut power, falls back to the FADT reset register, the 8042
+controller, the PCI reset control register, and finally a halt. `reboot`
+uses the same reset path.
 
 ## Test protocol
 

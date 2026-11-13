@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 7 complete (BIOS and UEFI boot paths, graphical desktop, 60 Hz compositor)
+**Status:** Phase 8 complete — `v0.1.0` (hardened BIOS/UEFI boot, userland, desktop)
 **Repository:** self-contained; all sources, build scripts, and documentation live here.
 **Plan file:** this document is the canonical project plan.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and UEFI (OVMF)
@@ -18,7 +18,7 @@
 | CPU model | Uniprocessor x86_64, 4-level paging, preemptive round-robin |
 | Root filesystem | ext2 read-only image embedded in the ISO, loaded into RAM by the bootloader |
 | Boot protocol | Custom, documented `boot_info` struct; no GRUB/Limine/Multiboot |
-| Syscalls | `int 0x80` first, `SYSCALL/SYSRET` fast path in Phase 8 |
+| Syscalls | `int 0x80` compatibility gate plus `SYSCALL`/`SYSRET` fast path with a per-CPU GS block |
 | ISO | `xorriso` El Torito no-emulation, boot-info-table patched |
 | Tooling verified present | `gcc 16`, `clang 23`, `nasm 3.02`, `ld 2.47`, `xorriso 1.5.8`, `qemu 11.1`, `mke2fs 1.47`, `OVMF`, `ld.lld`/`lld-link` |
 
@@ -233,7 +233,8 @@ magic/version before touching any field.
 - Exceptions: decode all 32, including page-fault CR2/error bits. Diagnostics
   print vector, error, RIP/CS/RFLAGS/RSP/CR2 and a frame-pointer backtrace.
 - CPUID feature detection; enable NX (EFER.NXE), WP, SSE (CR0.MP/CR4.OSFXSR/
-  OSXMMEXCPT), SMEP/SMAP in Phase 8. `fxsave`/`fxrstor` per task.
+  OSXMMEXCPT), and SMEP/SMAP when the CPU supports them. `fxsave`/`fxrstor`
+  per task.
 - PIC remap (0x20–0x2F), mask spurious IRQs, PIT channel 0 at 100 Hz, RTC
   wall clock, interrupt-safe spinlocks (`irq_save`/`irq_restore`).
 
@@ -281,11 +282,13 @@ magic/version before touching any field.
 - `brk`, anonymous `mmap`/`munmap`, demand-zero pages, COW refcounts.
 
 **Syscall ABI**
-- `int 0x80`: `rax` = number, args `rdi, rsi, rdx, r10, r8, r9`, result in
-  `rax`; errors as `-errno` (Linux convention). Args are validated and user
-  pointers copied via usercopy.
-- Phase 8 adds `SYSCALL/SYSRET` with per-CPU GS base and a fast dispatch path;
-  `int 0x80` remains for compatibility.
+- `SYSCALL`: `rax` = number, args `rdi, rsi, rdx, r10, r8, r9`, result in
+  `rax`; errors as `-errno` (Linux convention). Entry does `swapgs`, switches
+  to the per-CPU kernel stack, and builds the same trap frame as the
+  interrupt gates; return is `sysretq` with the reordered GDT selectors.
+- `int 0x80`: the same register and error convention, retained as a
+  compatibility gate. Args are validated and user pointers copied via
+  usercopy, which wraps `stac`/`clac` for SMAP.
 
 | # | Syscall | # | Syscall |
 |---|---|---|---|
@@ -351,247 +354,195 @@ zenku/
 ├── config.mk
 ├── README.md
 ├── LICENSE
-├── .gitignore
 ├── .editorconfig
+├── .gitignore
+├── .github/
+│   └── workflows/ci.yml
 ├── docs/
-│   ├── architecture.md
+│   ├── PLAN.md
 │   ├── boot-protocol.md
-│   ├── memory-map.md
-│   ├── syscall-abi.md
-│   ├── building.md
-│   ├── testing.md
-│   ├── roadmap.md
-│   └── PLAN.md              ← copy of this plan
+│   └── screenshots/
+│       ├── filesystem.png
+│       ├── hero.png
+│       ├── scheduler.png
+│       └── shell.png
 ├── linker/
 │   ├── kernel.ld
 │   ├── stage3.ld
 │   └── user.ld
 ├── include/
+│   ├── bdev.h
 │   ├── boot_info.h
-│   ├── version.h
-│   ├── types.h
+│   ├── boot_offsets.inc
 │   ├── compiler.h
-│   ├── abi/
-│   │   ├── syscall.h
-│   │   ├── errno.h
-│   │   ├── fcntl.h
-│   │   ├── stat.h
-│   │   ├── dirent.h
-│   │   ├── wait.h
-│   │   └── mman.h
-│   ├── kernel/
-│   │   ├── list.h
-│   │   ├── spinlock.h
-│   │   ├── atomic.h
-│   │   ├── irqflags.h
-│   │   ├── kprintf.h
-│   │   ├── panic.h
-│   │   ├── log.h
-│   │   ├── string.h
-│   │   ├── bitmap.h
-│   │   ├── io.h
-│   │   ├── cpu.h
-│   │   ├── gdt.h
-│   │   ├── idt.h
-│   │   ├── syscall.h
-│   │   └── selftest.h
-│   ├── mm/
-│   │   ├── pmm.h
-│   │   ├── page.h
-│   │   ├── vmm.h
-│   │   ├── heap.h
-│   │   └── vma.h
-│   ├── sched/
-│   │   ├── task.h
-│   │   ├── sched.h
-│   │   └── waitq.h
-│   ├── fs/
-│   │   ├── vfs.h
-│   │   ├── blockdev.h
-│   │   ├── ext2.h
-│   │   ├── devfs.h
-│   │   └── pipe.h
-│   ├── drivers/
-│   │   ├── serial.h
-│   │   ├── ps2.h
-│   │   ├── keyboard.h
-│   │   ├── mouse.h
-│   │   ├── fb.h
-│   │   ├── console.h
-│   │   ├── tty.h
-│   │   ├── rtc.h
-│   │   └── ramdisk.h
-│   └── lib/
-│       └── usercopy.h
+│   ├── elf.h
+│   ├── errno.h
+│   ├── io.h
+│   ├── kio.h
+│   ├── kpanic.h
+│   ├── rtc.h
+│   ├── string.h
+│   ├── types.h
+│   └── version.h
 ├── boot/
-│   ├── stage1/
-│   │   └── stage1.asm
+│   ├── stage1/stage1.asm
 │   ├── stage2/
-│   │   ├── entry.asm
-│   │   ├── main.asm
-│   │   ├── bios_disk.asm
-│   │   ├── bios_e820.asm
-│   │   ├── bios_vbe.asm
-│   │   ├── unreal.asm
-│   │   ├── iso9660.asm
 │   │   ├── console.asm
-│   │   └── stage2.ld
-│   └── stage3/
-│       ├── entry.asm
-│       ├── main.c
-│       ├── bootproto.c
-│       ├── elfload.c
-│       ├── paging.c
-│       ├── longmode.asm
-│       ├── serial.c
-│       ├── fbtext.c
-│       └── stage3.h
+│   │   ├── disk.asm
+│   │   ├── entry.asm
+│   │   ├── gdt.asm
+│   │   ├── iso9660.asm
+│   │   ├── longmode.asm
+│   │   ├── mem.asm
+│   │   └── vbe.asm
+│   ├── stage3/
+│   │   ├── entry.asm
+│   │   └── main.c
+│   └── uefi/
+│       ├── efi.h
+│       ├── font8x16.c
+│       └── main.c
 ├── kernel/
 │   ├── arch/x86_64/
+│   │   ├── cpu.c
+│   │   ├── cpu.h
 │   │   ├── entry.asm
 │   │   ├── gdt.c
+│   │   ├── gdt.h
 │   │   ├── gdt_flush.asm
 │   │   ├── idt.c
-│   │   ├── isr.asm
-│   │   ├── irq_entry.asm
-│   │   ├── cpu.c
-│   │   ├── msr.c
-│   │   ├── fpu.c
-│   │   ├── syscall_entry.asm
-│   │   ├── context_switch.asm
-│   │   ├── tlb.asm
-│   │   └── reboot.c
-│   ├── core/
-│   │   ├── kmain.c
-│   │   ├── panic.c
-│   │   ├── kprintf.c
-│   │   ├── log.c
-│   │   ├── time.c
-│   │   ├── selftest.c
-│   │   └── banner.c
-│   ├── mm/
-│   │   ├── pmm.c
-│   │   ├── page.c
-│   │   ├── vmm.c
-│   │   ├── heap.c
-│   │   ├── vma.c
-│   │   └── usercopy.c
-│   ├── sched/
-│   │   ├── task.c
-│   │   ├── sched.c
-│   │   ├── waitq.c
-│   │   └── kthread.c
-│   ├── exec/
-│   │   ├── elf.c
-│   │   └── stack.c
-│   ├── syscall/
-│   │   ├── dispatch.c
-│   │   ├── sys_file.c
-│   │   ├── sys_proc.c
-│   │   ├── sys_mem.c
-│   │   ├── sys_misc.c
-│   │   └── syscall_internal.h
-│   ├── irq/
+│   │   ├── idt.h
 │   │   ├── irq.c
-│   │   ├── pic.c
-│   │   ├── pit.c
-│   │   └── timer.c
-│   └── lib/
-│       ├── string.c
-│       ├── memory.c
-│       ├── vsnprintf.c
-│       └── bitmap.c
+│   │   ├── irq.h
+│   │   ├── isr.asm
+│   │   ├── syscall.asm
+│   │   └── user.asm
+│   ├── exec/
+│   │   ├── loader.c
+│   │   └── loader.h
+│   ├── fs/
+│   │   ├── devfs.c
+│   │   ├── devfs.h
+│   │   ├── pipe.c
+│   │   ├── pipe.h
+│   │   ├── ramdisk.c
+│   │   ├── ramdisk.h
+│   │   ├── vfs.c
+│   │   └── vfs.h
+│   ├── mm/
+│   │   ├── heap.c
+│   │   ├── heap.h
+│   │   ├── pmm.c
+│   │   ├── pmm.h
+│   │   ├── usercopy.c
+│   │   ├── usercopy.h
+│   │   ├── vmm.c
+│   │   └── vmm.h
+│   ├── sched/
+│   │   ├── process.c
+│   │   └── process.h
+│   ├── syscall/
+│   │   ├── syscall.c
+│   │   └── syscall.h
+│   ├── console.c
+│   ├── console.h
+│   ├── desktop.c
+│   ├── desktop.h
+│   ├── fb.c
+│   ├── fb.h
+│   ├── idle.c
+│   ├── idle.h
+│   ├── main.c
+│   ├── panic.c
+│   ├── tty.c
+│   └── tty.h
 ├── drivers/
-│   ├── serial/serial.c
-│   ├── ps2/ps2.c
-│   ├── ps2/keyboard.c
-│   ├── ps2/mouse.c
-│   ├── ps2/keymap.c
-│   ├── video/fb.c
-│   ├── video/draw.c
-│   ├── video/font8x16.c
-│   ├── video/console.c
-│   ├── video/desktop.c
-│   ├── video/cursor.c
-│   ├── block/ramdisk.c
-│   ├── char/tty.c
+│   ├── acpi.c
+│   ├── acpi.h
+│   ├── mouse.c
+│   ├── mouse.h
+│   ├── pic.c
+│   ├── pic.h
+│   ├── pit.c
+│   ├── pit.h
+│   ├── ps2.c
+│   ├── ps2.h
+│   ├── serial.c
+│   ├── serial.h
 │   └── time/rtc.c
 ├── fs/
-│   ├── vfs.c
-│   ├── path.c
-│   ├── file.c
-│   ├── ext2/
-│   │   ├── ext2_core.c
-│   │   ├── ext2_inode.c
-│   │   ├── ext2_dir.c
-│   │   └── ext2_fs.c
-│   ├── devfs.c
-│   └── pipe.c
+│   ├── ext2.c
+│   └── ext2.h
+├── lib/
+│   ├── kio.c
+│   └── string.c
 ├── libc/
-│   ├── crt0.asm
-│   ├── syscall.asm
-│   ├── stdio/printf.c
-│   ├── stdio/puts.c
-│   ├── stdio/stdio.c
-│   ├── stdlib/malloc.c
-│   ├── stdlib/exit.c
-│   ├── stdlib/strtol.c
-│   ├── stdlib/qsort.c
-│   ├── string/mem.c
-│   ├── string/str.c
-│   ├── unistd/syscalls.c
-│   ├── sys/stat.c
-│   └── include/
-│       ├── stdio.h
-│       ├── stdlib.h
-│       ├── string.h
-│       ├── unistd.h
-│       ├── fcntl.h
-│       ├── errno.h
-│       ├── dirent.h
-│       ├── ctype.h
-│       ├── stdarg.h
-│       ├── stddef.h
-│       ├── stdint.h
-│       ├── limits.h
-│       ├── time.h
-│       ├── sys/stat.h
-│       ├── sys/wait.h
-│       ├── sys/mman.h
-│       └── sys/types.h
+│   ├── include/
+│   │   ├── ctype.h
+│   │   ├── errno.h
+│   │   ├── stdio.h
+│   │   ├── stdlib.h
+│   │   ├── string.h
+│   │   ├── unistd.h
+│   │   └── zenku.h
+│   └── src/
+│       ├── ctype.c
+│       ├── errno.c
+│       ├── stdio.c
+│       ├── stdlib.c
+│       ├── string.c
+│       └── unistd.c
 ├── user/
-│   ├── init/main.c
-│   ├── sh/main.c
-│   ├── sh/line.c
-│   ├── sh/parse.c
-│   ├── sh/exec.c
-│   ├── sh/builtins.c
-│   ├── coreutils/ls.c
-│   ├── coreutils/cat.c
-│   ├── coreutils/echo.c
-│   ├── coreutils/pwd.c
-│   ├── coreutils/ps.c
-│   ├── coreutils/kill.c
-│   ├── coreutils/sleep.c
-│   ├── coreutils/uname.c
-│   ├── coreutils/clear.c
-│   ├── coreutils/wc.c
-│   └── coreutils/head.c
+│   ├── coreutils/
+│   │   ├── cat.c
+│   │   ├── clear.c
+│   │   ├── echo.c
+│   │   ├── head.c
+│   │   ├── kill.c
+│   │   ├── ls.c
+│   │   ├── poweroff.c
+│   │   ├── ps.c
+│   │   ├── pwd.c
+│   │   ├── sleep.c
+│   │   ├── uname.c
+│   │   └── wc.c
+│   ├── init/init.c
+│   ├── sh/sh.c
+│   ├── crt0.asm
+│   └── user.ld
 ├── scripts/
-│   ├── toolchain.sh
-│   ├── mkrootfs.sh
-│   ├── mkiso.sh
-│   ├── run-tests.sh
+│   ├── build-boot.sh
 │   ├── check-layout.sh
-│   └── gdbinit
+│   ├── gdbinit
+│   ├── iso-ls.py
+│   ├── mkefi.sh
+│   ├── mkiso.sh
+│   ├── mkrootfs.sh
+│   ├── qemu-headless.sh
+│   ├── qemu-probe.py
+│   ├── run-fault-test.sh
+│   ├── run-fs-test.sh
+│   ├── run-input-test.sh
+│   ├── run-proc-test.sh
+│   ├── run-serial-test.sh
+│   ├── run-sh-test.sh
+│   ├── run-tests.sh
+│   ├── run-uefi-test.sh
+│   ├── run-user-test.sh
+│   ├── syntax-check.sh
+│   └── toolchain.sh
 ├── tests/
-│   ├── host/Makefile
-│   ├── host/test_string.c
-│   ├── host/test_printf.c
-│   ├── host/test_ext2.c
-│   ├── integration/boot.test
-│   └── integration/userland.test
-└── third_party/font/README.md
+│   └── host/
+│       ├── Makefile
+│       ├── mkimage.sh
+│       ├── test.h
+│       ├── test_main.c
+│       ├── test_string.c
+│       └── test_ext2.c
+└── third_party/
+    └── font/
+        ├── OFL.txt
+        └── README.md
 ```
 
 ---
@@ -641,7 +592,7 @@ zenku/
 | `make run` | QEMU graphical boot |
 | `make debug` | QEMU `-s -S` + GDB script |
 | `make test` | headless boot + integration tests |
-| `make test-host` | native unit tests for lib/printf/ext2 |
+| `make test-host` | native string/mem and ext2 unit tests |
 | `make size` | size report per component |
 | `make layout` | asserts linker symbols, stage sizes, no overlaps |
 | `make clean` / `distclean` | remove `build/` / also generated toolchain artifacts |
@@ -867,28 +818,48 @@ the shell responsive.
 SeaBIOS boot still works from the same ISO. **Met:** both firmware paths
 pass the automated boot tests and reach the desktop.
 
-### Phase 8 — Hardening, extras, release (≈2 sessions)
+### Phase 8 — Hardening, extras, release (≈2 sessions) — COMPLETE
 
-* `SYSCALL/SYSRET` fast path, per-CPU GS, libc switches to it.
-* NX enforcement, SMEP/SMAP with `stac`/`clac` in usercopy, W^X user mappings.
-* Heap redzones/poisoning, canary-free stack guard pages, panic log to serial.
-* ext2 edge cases: 4 KiB blocks, double/triple indirect, deep paths, large dirs.
-* Optional ATA PIO/ATAPI block device and booting with a raw ext2 second disk.
-* ACPI FADT parse (RSDP already passed) for graceful poweroff, fallback to 8042
-  reset / `hlt`.
-* Documentation complete, release tag `v0.1.0`, full test matrix.
+* [x] `SYSCALL`/`SYSRET` fast path in `kernel/arch/x86_64/syscall.asm`, with a
+  per-CPU GS block (`swapgs`), the same `struct regs` frame used by the
+  interrupt gates, and `int 0x80` retained as a compatibility gate. The libc
+  syscall wrapper uses the fast path.
+* [x] CPUID-gated NX, SMEP, and SMAP; `stac`/`clac` around validated user
+  copies. CPUs without a feature still boot, with that feature disabled.
+* [x] W^X user mappings: executable pages are read-only, writable pages are
+  non-executable, and writable+executable ELF segments or `mmap` requests are
+  rejected.
+* [x] Heap redzones with alloc/free poisoning and integrity checks; guarded
+  kernel stacks; panic output mirrored to COM1.
+* [x] ext2 edge cases: 1/2/4 KiB blocks, double/triple indirect, deep paths,
+  large directories, `..` resolution, and corrupt `rec_len`/name-length
+  rejection, exercised by `make test-host`.
+* [x] ACPI FADT parse for graceful poweroff through S5, with FADT reset,
+  8042 reset, PCI reset, and halt fallbacks; `poweroff` coreutil and
+  `SYS_poweroff`.
+* [x] Documentation, the `v0.1.0` tag, and the static, host, QEMU, and UEFI
+  test matrix.
+* Deferred: ATA PIO/ATAPI block device and booting from a raw ext2 second
+  disk. The RAM-resident root image remains the supported path.
 
 **Accept:** `make test` and `make test-host` pass; SMEP/SMAP cannot be bypassed
 by a bad usercopy test; both BIOS and UEFI ISO boots work; docs match behavior.
+**Met:** 208 host checks pass, the usercopy tests reject kernel pointers,
+writes to user text, and writable-executable mappings, and both firmware paths
+reach the same kernel and userland.
 
 ---
 
 ## 7. Test strategy
 
 **Host unit tests (`make test-host`)**
-- `string`/`mem` edge cases, `vsnprintf` formatting matrix, bitmap operations.
-- ext2 parser against a generated fixture image: superblock, root dir, nested
-  files, indirect blocks, corrupt rec_len rejection.
+- `tests/host/test_string.c`: `memset`, `memcpy`, `memmove`, `memcmp`,
+  `strlen`, `strcmp`, `strncmp`, `strcpy`, `strncpy`, `strchr`, `strrchr`,
+  and `strstr` normal, boundary, and overlap cases.
+- `tests/host/test_ext2.c` against generated fixture images: superblock and
+  root directory, nested files, deep paths, a 200-entry directory, 1/2/4 KiB
+  blocks, single/double/triple indirect blocks up to 66 MiB, `..` resolution,
+  unsupported extents, bad magic, and corrupt `rec_len`/name-length rejection.
 
 **QEMU integration (`make test`)**
 - Headless: `-display none -serial file:build/test-serial.log`
@@ -933,19 +904,21 @@ by a bad usercopy test; both BIOS and UEFI ISO boots work; docs match behavior.
 
 | Requirement | Where |
 |---|---|
-| Custom bootloader, BIOS/UEFI | `boot/stage1`, `boot/stage2`, `boot/stage3`, Phase 7 EFI app |
-| Explicit memory map parser | `boot/stage2/bios_e820.asm`, kernel PMM |
-| Read-only ext2 driver in bootloader/kernel | `fs/ext2/*` shared by stage3 + kernel, `drivers/block/ramdisk.c` |
-| ELF64 parser, GDT, long mode, paging handoff | `boot/stage3/elfload.c`, `paging.c`, `longmode.asm` |
-| Higher-half kernel at `0xFFFFFFFF80000000` | `linker/kernel.ld`, stage3 page tables, `mm/vmm.c` |
-| Frame allocator + paging | `mm/pmm.c`, `mm/vmm.c`, `mm/page.c` |
-| IDT, exceptions, hardware IRQs, PIT | `arch/x86_64/idt.c`, `isr.asm`, `irq/*` |
-| PS/2 keyboard + mouse | `drivers/ps2/*` |
-| VESA LFB + graphical desktop | `drivers/video/*` |
-| Serial COM1 logging | `drivers/serial/serial.c`, used from stage1 onward |
-| Preemptive round-robin scheduler + context switch | `sched/*`, `arch/x86_64/context_switch.asm` |
-| User ELF from ext2 | `fs/ext2`, `exec/elf.c`, `sched/task.c` |
-| POSIX core syscalls | `syscall/*`, `include/abi/syscall.h` |
+| Custom bootloader, BIOS/UEFI | `boot/stage1/stage1.asm`, `boot/stage2/*`, `boot/stage3/*`, `boot/uefi/main.c` |
+| Explicit memory map parser | `boot/stage2/mem.asm`, kernel PMM |
+| Read-only ext2 driver in bootloader/kernel | `fs/ext2.c` shared by stage3, UEFI loader, and kernel; `kernel/fs/ramdisk.c` |
+| ELF64 parser, GDT, long mode, paging handoff | `boot/stage3/main.c`, `boot/stage2/gdt.asm`, `boot/stage2/longmode.asm` |
+| Higher-half kernel at `0xFFFFFFFF80000000` | `linker/kernel.ld`, stage3/UEFI page tables, `kernel/mm/vmm.c` |
+| Frame allocator + paging | `kernel/mm/pmm.c`, `kernel/mm/vmm.c` |
+| IDT, exceptions, hardware IRQs, PIT | `kernel/arch/x86_64/idt.c`, `isr.asm`, `irq.c`, `drivers/pit.c` |
+| PS/2 keyboard + mouse | `drivers/ps2.c`, `drivers/mouse.c` |
+| VESA LFB + graphical desktop | `kernel/fb.c`, `boot/stage2/vbe.asm`, `kernel/desktop.c` |
+| Serial COM1 logging | `drivers/serial.c`, used from stage1 onward |
+| Preemptive round-robin scheduler | `kernel/sched/process.c`, `kernel/arch/x86_64/isr.asm` frame return |
+| User ELF from ext2 | `fs/ext2.c`, `kernel/exec/loader.c`, `kernel/sched/process.c` |
+| POSIX core syscalls | `kernel/syscall/syscall.c`, `libc/include/zenku.h` |
+| NX/SMEP/SMAP, `SYSCALL`/`SYSRET`, W^X, usercopy | `kernel/arch/x86_64/cpu.c`, `kernel/arch/x86_64/syscall.asm`, `kernel/mm/usercopy.c`, `kernel/mm/vmm.c`, `kernel/mm/heap.c` |
+| ACPI poweroff/reboot | `drivers/acpi.c`, `user/coreutils/poweroff.c` |
 | Directory structure | Section 4 |
 | Master Makefile + `x86_64-elf` + host fallback | Section 5, root `Makefile` |
 | `xorriso` ISO packaging | `scripts/mkiso.sh` |

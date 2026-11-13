@@ -27,6 +27,9 @@ jobs:
           make check
           make check-link
 
+      - name: Run host unit tests
+        run: make test-host
+
       - name: Run boot test
         run: make test
 

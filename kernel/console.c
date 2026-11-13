@@ -905,7 +905,7 @@ static void command_run(void)
         put_uint(pit_ticks());
         console_puts(" ticks)\n");
     } else if (strcmp(g_line, "version") == 0) {
-        console_puts("Zenku 0.0.1 - Thunder, 64-bit higher half\n");
+        console_puts(OS_VERSION_STRING ", 64-bit higher half\n");
     } else if (strcmp(g_line, "clear") == 0) {
         console_clear();
         console_prompt();

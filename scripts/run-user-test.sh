@@ -29,9 +29,12 @@ check() {
 
 check "user: entering ring 3"
 check "init: hello from ring 3"
-check "init: cs 0x1b"
+check "init: cs 0x23"
 check "init: pid 1 ppid 0"
 check "init: bad user pointer rejected"
+check "init: kernel pointer rejected"
+check "init: write to text rejected"
+check "init: writable-exec mapping rejected"
 check "init: pipe transfer ok"
 check "init: empty pipe returned EAGAIN"
 check "init: pipe EOF after close ok"

@@ -3,7 +3,7 @@
 
 /*
  * Tiny freestanding user-space ABI for Zenku. Each helper is a static inline
- * int 0x80 wrapper. The standard headers in this directory provide a small
+ * SYSCALL wrapper. The standard headers in this directory provide a small
  * C library built on top of these calls.
  */
 
@@ -60,6 +60,7 @@ typedef long intptr_t;
 #define SYS_chdir  83
 #define SYS_getcwd 84
 #define SYS_getppid 110
+#define SYS_poweroff 169
 
 #define ZP_FREE   0
 #define ZP_READY  1
@@ -99,7 +100,7 @@ static inline long syscall1(long number, long arg)
 {
     long ret;
 
-    __asm__ volatile("int $0x80"
+    __asm__ volatile("syscall"
                      : "=a"(ret)
                      : "a"(number), "D"(arg)
                      : "rcx", "r11", "memory");
@@ -110,7 +111,7 @@ static inline long syscall3(long number, long a, long b, long c)
 {
     long ret;
 
-    __asm__ volatile("int $0x80"
+    __asm__ volatile("syscall"
                      : "=a"(ret)
                      : "a"(number), "D"(a), "S"(b), "d"(c)
                      : "rcx", "r11", "memory");
@@ -125,7 +126,7 @@ static inline long syscall6(long number, long a, long b, long c, long d,
     register long r9 __asm__("r9") = f;
     long ret;
 
-    __asm__ volatile("int $0x80"
+    __asm__ volatile("syscall"
                      : "=a"(ret)
                      : "a"(number), "D"(a), "S"(b), "d"(c), "r"(r10),
                        "r"(r8), "r"(r9)
@@ -176,8 +177,10 @@ static inline long sys_brk(void *addr)
 static inline void *sys_mmap(void *addr, size_t length, int prot, int flags,
                              int fd, off_t offset)
 {
-    return (void *)syscall6(SYS_mmap, (long)addr, (long)length, prot, flags,
-                            fd, (long)offset);
+    long ret = syscall6(SYS_mmap, (long)addr, (long)length, prot, flags, fd,
+                        (long)offset);
+
+    return ret < 0 ? MAP_FAILED : (void *)ret;
 }
 
 static inline long sys_munmap(void *addr, size_t length)
@@ -255,6 +258,11 @@ static inline long sys_kill(long pid, int sig)
 static inline long sys_getpid(void)
 {
     return syscall1(SYS_getpid, 0);
+}
+
+static inline long sys_poweroff(void)
+{
+    return syscall1(SYS_poweroff, 0);
 }
 
 static inline long sys_getppid(void)

@@ -71,8 +71,8 @@ void gdt_init(uint64_t kernel_stack_top)
     set_entry(0, 0, 0, 0, 0);                    /* null */
     set_entry(1, 0, 0xFFFFF, 0x9A, 0x20);        /* kernel code, L=1 */
     set_entry(2, 0, 0xFFFFF, 0x92, 0x00);        /* kernel data */
-    set_entry(3, 0, 0xFFFFF, 0xFA, 0x20);        /* user code, L=1 */
-    set_entry(4, 0, 0xFFFFF, 0xF2, 0x00);        /* user data */
+    set_entry(3, 0, 0xFFFFF, 0xF2, 0x00);        /* user data */
+    set_entry(4, 0, 0xFFFFF, 0xFA, 0x20);        /* user code, L=1 */
     set_tss_entry(5, (uint64_t)(uintptr_t)&g_tss, sizeof(g_tss) - 1);
 
     g_tss.rsp0 = kernel_stack_top;

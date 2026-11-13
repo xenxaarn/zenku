@@ -98,6 +98,62 @@ static int mem_bdev_read(struct bdev *dev, uint64_t block, void *buf,
     return 0;
 }
 
+static bool rsdp_checksum_ok(uint64_t addr, uint32_t length)
+{
+    const uint8_t *p = (const uint8_t *)(uintptr_t)addr;
+    uint8_t sum = 0;
+
+    for (uint32_t i = 0; i < length; i++) {
+        sum = (uint8_t)(sum + p[i]);
+    }
+    return sum == 0;
+}
+
+static bool rsdp_at(uint64_t addr)
+{
+    const uint8_t *p = (const uint8_t *)(uintptr_t)addr;
+    uint32_t length;
+
+    if (memcmp(p, "RSD PTR ", 8) != 0 ||
+        !rsdp_checksum_ok(addr, 20)) {
+        return false;
+    }
+    /* Revision is at offset 15; OEMID occupies offsets 9..14. */
+    if (p[15] >= 2) {
+        memcpy(&length, p + 20, sizeof(length));
+        if (length < 36 || length > 4096 ||
+            !rsdp_checksum_ok(addr, length)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* BIOS firmware publishes the RSDP either in the first KiB of the EBDA or
+ * in the 0xE0000..0xFFFFF ROM window, aligned to 16 bytes. */
+static uint64_t find_rsdp(void)
+{
+    uint16_t ebda_seg;
+    uint64_t ebda;
+
+    memcpy(&ebda_seg, (const void *)(uintptr_t)0x40E, sizeof(ebda_seg));
+    ebda = (uint64_t)ebda_seg << 4;
+    if (ebda >= 0x80000 && ebda < 0xA0000) {
+        for (uint64_t addr = ebda; addr < ebda + 1024; addr += 16) {
+            if (rsdp_at(addr)) {
+                return addr;
+            }
+        }
+    }
+
+    for (uint64_t addr = 0xE0000; addr < 0x100000; addr += 16) {
+        if (rsdp_at(addr)) {
+            return addr;
+        }
+    }
+    return 0;
+}
+
 static void normalize_e820(struct boot_info *bi, const struct boot_params *bp)
 {
     struct e820_entry *dst = (struct e820_entry *)(uintptr_t)BOOT_E820_NORM_ADDR;
@@ -163,7 +219,7 @@ static void fill_boot_info(struct boot_info *bi, const struct boot_params *bp,
     bi->kernel_size = size;
     bi->kernel_entry = entry;
 
-    bi->rsdp_addr = 0;
+    bi->rsdp_addr = find_rsdp();
     bi->boot_drive = bp->boot_drive;
 }
 
@@ -330,6 +386,8 @@ void stage3_main(struct boot_params *bp)
             g_fs.block_size, g_fs.group_count, g_fs.inodes_count);
 
     load_kernel(&g_fs, bi);
+    kprintf("stage3: rsdp %s at 0x%llx\n",
+            bi->rsdp_addr ? "found" : "not found", bi->rsdp_addr);
 
     build_page_tables();
     kprintf("stage3: paging ready (physmap 0x%llx, kernel 0x%llx)\n",

@@ -1,3 +1,5 @@
+#include <acpi.h>
+#include <arch/x86_64/cpu.h>
 #include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
 #include <arch/x86_64/irq.h>
@@ -20,6 +22,7 @@
 #include <process.h>
 #include <ps2.h>
 #include <serial.h>
+#include <syscall.h>
 #include <types.h>
 #include <version.h>
 
@@ -84,6 +87,8 @@ static void cpu_init(void)
 
     idt_init();
     irq_init();
+    syscall_init();
+    cpu_selftest();
 
     pic_remap(IDT_IRQ_BASE, IDT_IRQ_BASE + 8);
     pic_disable();
@@ -134,6 +139,8 @@ void kmain(struct boot_info *bi)
             bi->initrd_addr, bi->initrd_size, bi->boot_drive);
 
     pmm_init(bi);
+    cpu_detect_features();
+    cpu_enable_features();
     if (vmm_init() != 0) {
         kpanic("vmm: initialization failed");
     }
@@ -143,6 +150,7 @@ void kmain(struct boot_info *bi)
     pmm_selftest();
     vmm_selftest();
     heap_selftest();
+    acpi_init(bi->rsdp_addr);
 
     if (vfs_init(bi->initrd_addr, bi->initrd_size) != 0) {
         kprintf("kernel: root filesystem unavailable\n");

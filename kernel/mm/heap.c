@@ -9,6 +9,14 @@
 #define HEAP_ALIGN 16
 #define HEAP_MAGIC 0x48454150424C4B31ull /* "HEAPBLK1" */
 
+/* A 16-byte trailer keeps the following block 16-byte aligned and detects
+ * overruns past the requested payload. */
+#define HEAP_TRAILER_SIZE 16
+#define HEAP_TRAILER_MAGIC 0x5452414C5A4E4B31ull /* "TRALZNK1" */
+
+#define HEAP_POISON_ALLOC 0xCC
+#define HEAP_POISON_FREE  0xDD
+
 struct heap_block {
     uint64_t magic;
     uint64_t size;              /* payload bytes */
@@ -22,6 +30,26 @@ static size_t g_initial_free;
 static inline size_t align_up(size_t value)
 {
     return (value + (HEAP_ALIGN - 1)) & ~(size_t)(HEAP_ALIGN - 1);
+}
+
+static inline uint64_t *block_trailer(const struct heap_block *block)
+{
+    return (uint64_t *)((uint8_t *)(block + 1) + block->size);
+}
+
+static inline void trailer_set(struct heap_block *block)
+{
+    uint64_t *trailer = block_trailer(block);
+
+    trailer[0] = HEAP_TRAILER_MAGIC;
+    trailer[1] = ~block->size;
+}
+
+static inline bool trailer_ok(const struct heap_block *block)
+{
+    const uint64_t *trailer = block_trailer(block);
+
+    return trailer[0] == HEAP_TRAILER_MAGIC && trailer[1] == ~block->size;
 }
 
 static uint64_t irq_save(void)
@@ -44,6 +72,21 @@ static bool block_valid(const struct heap_block *block)
     return block && block->magic == HEAP_MAGIC;
 }
 
+static void heap_verify(void)
+{
+    for (struct heap_block *block = g_first; block; block = block->next) {
+        if (!block_valid(block)) {
+            kpanic("heap: corrupt block header at %p", block);
+        }
+        if (!trailer_ok(block)) {
+            kpanic("heap: redzone overwritten for block at %p", block);
+        }
+        if (block->next && block->next <= block) {
+            kpanic("heap: non-monotonic block list at %p", block);
+        }
+    }
+}
+
 void heap_init(void)
 {
     uint64_t mapped = 0;
@@ -64,12 +107,14 @@ void heap_init(void)
 
     g_first = (struct heap_block *)(uintptr_t)KERNEL_HEAP_BASE;
     g_first->magic = HEAP_MAGIC;
-    g_first->size = KERNEL_HEAP_SIZE - sizeof(struct heap_block);
+    g_first->size = KERNEL_HEAP_SIZE - sizeof(struct heap_block) -
+                    HEAP_TRAILER_SIZE;
     g_first->next = NULL;
     g_first->free = 1;
+    trailer_set(g_first);
     g_initial_free = g_first->size;
 
-    kprintf("heap: %llu MiB mapped at 0x%llx (%llu KiB usable)\n",
+    kprintf("heap: %llu MiB mapped at 0x%llx (%llu KiB usable, redzones on)\n",
             mapped / MB(1), KERNEL_HEAP_BASE, g_first->size / KB(1));
 }
 
@@ -91,25 +136,36 @@ void *kmalloc(size_t size)
             irq_restore(flags);
             kpanic("heap: corrupt block header at %p", block);
         }
+        if (block->free && !trailer_ok(block)) {
+            irq_restore(flags);
+            kpanic("heap: redzone overwritten for free block at %p", block);
+        }
         if (!block->free || block->size < needed) {
             continue;
         }
 
-        /* Split if the remainder can hold a header plus a minimal payload. */
-        if (block->size >= needed + sizeof(struct heap_block) + HEAP_ALIGN) {
-            struct heap_block *rest =
-                (struct heap_block *)((uint8_t *)(block + 1) + needed);
+        /* Split if the remainder can hold a header, trailer, and a minimal
+         * aligned payload. */
+        if (block->size >= needed + HEAP_TRAILER_SIZE +
+                               sizeof(struct heap_block) + HEAP_ALIGN) {
+            struct heap_block *rest = (struct heap_block *)
+                ((uint8_t *)(block + 1) + needed + HEAP_TRAILER_SIZE);
 
             rest->magic = HEAP_MAGIC;
-            rest->size = block->size - needed - sizeof(struct heap_block);
+            rest->size = block->size - needed - HEAP_TRAILER_SIZE -
+                         sizeof(struct heap_block);
             rest->next = block->next;
             rest->free = 1;
+            trailer_set(rest);
 
             block->next = rest;
             block->size = needed;
+            trailer_set(block);
         }
 
         block->free = 0;
+        memset(block + 1, HEAP_POISON_ALLOC, block->size);
+        trailer_set(block);
         irq_restore(flags);
         return (void *)(block + 1);
     }
@@ -155,7 +211,12 @@ void kfree(void *ptr)
         irq_restore(flags);
         kpanic("heap: double free of %p", ptr);
     }
+    if (!trailer_ok(block)) {
+        irq_restore(flags);
+        kpanic("heap: redzone overwritten before free of %p", ptr);
+    }
 
+    memset(block + 1, HEAP_POISON_FREE, block->size);
     block->free = 1;
 
     /* Coalesce every adjacent free pair in one pass. */
@@ -163,8 +224,14 @@ void kfree(void *ptr)
         while (block->free && block->next && block->next->free) {
             struct heap_block *next = block->next;
 
-            block->size += sizeof(struct heap_block) + next->size;
+            if (!block_valid(next) || !trailer_ok(next)) {
+                irq_restore(flags);
+                kpanic("heap: corrupt neighbour after %p", block);
+            }
+            block->size += sizeof(struct heap_block) + next->size +
+                           HEAP_TRAILER_SIZE;
             block->next = next->next;
+            trailer_set(block);
         }
     }
 
@@ -186,7 +253,7 @@ void *krealloc(void *ptr, size_t size)
     }
 
     block = (struct heap_block *)ptr - 1;
-    if (!block_valid(block)) {
+    if (!block_valid(block) || !trailer_ok(block)) {
         kpanic("heap: krealloc of invalid pointer %p", ptr);
     }
     if (block->size >= size) {
@@ -198,7 +265,7 @@ void *krealloc(void *ptr, size_t size)
         return NULL;
     }
 
-    copy = block->size;
+    copy = block->size < size ? block->size : size;
     memcpy(fresh, ptr, copy);
     kfree(ptr);
     return fresh;
@@ -239,10 +306,12 @@ void heap_selftest(void)
         memset(ptrs[i], 0xA5, size);
         allocated++;
     }
+    heap_verify();
 
     for (unsigned i = 0; i < allocated; i++) {
         kfree(ptrs[i]);
     }
+    heap_verify();
 
     if (allocated != BLOCKS) {
         kpanic("heap selftest: allocated only %u/%u blocks",
@@ -259,6 +328,8 @@ void heap_selftest(void)
     }
     memset(big, 0x5A, 64 * 1024);
     kfree(big);
+    heap_verify();
 
-    kprintf("heap: selftest %u alloc/free blocks, no leaks\n", BLOCKS);
+    kprintf("heap: selftest %u alloc/free blocks, redzones intact, no leaks\n",
+            BLOCKS);
 }

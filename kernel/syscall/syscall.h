@@ -3,7 +3,7 @@
 
 #include <arch/x86_64/idt.h>
 
-/* int 0x80 is the only syscall gate in Phase 4. */
+/* int 0x80 remains the compatibility gate; SYSCALL is the fast path. */
 #define SYSCALL_VECTOR 0x80
 
 /* Linux x86_64 syscall numbers for the subset we implement. */
@@ -33,7 +33,9 @@
 #define SYS_chdir  83
 #define SYS_getcwd 84
 #define SYS_getppid 110
+#define SYS_poweroff 169
 
 void syscall_dispatch(struct regs *r);
+void syscall_init(void);
 
 #endif /* ZENKU_SYSCALL_H */

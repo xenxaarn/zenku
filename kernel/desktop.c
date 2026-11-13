@@ -353,7 +353,7 @@ void desktop_init(const struct boot_info *bi)
     draw_static_desktop();
 
     console_init(g_con_x, g_con_y, g_con_w, g_con_h, 1);
-    console_puts("Zenku 0.0.1 (Thunder) - higher-half kernel\n");
+    console_puts(OS_VERSION_STRING " - higher-half kernel\n");
     console_puts("memory managers online, PS/2 keyboard and mouse ready\n");
     console_puts("drag the title bar, resize from the corner, click console\n");
     console_puts("type 'help' for commands, PgUp/PgDn to scroll\n\n");

@@ -1,3 +1,4 @@
+#include <arch/x86_64/cpu.h>
 #include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
 #include <compiler.h>
@@ -7,6 +8,7 @@
 #include <kio.h>
 #include <mm/heap.h>
 #include <mm/pmm.h>
+#include <mm/usercopy.h>
 #include <mm/vmm.h>
 #include <pit.h>
 #include <string.h>
@@ -18,6 +20,7 @@
 #define USER_STACK_TOP   0x00007FFFFFF00000ull
 #define USER_STACK_PAGES 4
 #define USER_STACK_LIMIT (USER_STACK_TOP - 0x100000ull)
+#define USER_STACK_GUARD PAGE_SIZE
 #define PHYS_MAP_BASE    0xFFFF800000000000ull
 
 #define USER_HEAP_BASE   0x0000000010000000ull
@@ -27,9 +30,11 @@
 
 #define MAP_FIXED      0x10
 #define MAP_ANONYMOUS  0x20
+#define PROT_WRITE     0x2
+#define PROT_EXEC      0x4
 
-#define USER_CS 0x1B
-#define USER_SS 0x23
+#define USER_CS 0x23
+#define USER_SS 0x1B
 #define USER_RFLAGS 0x202ull
 
 #define SCHED_QUANTUM 2
@@ -160,6 +165,20 @@ static void release_process(struct process *p)
     p->state = PROC_FREE;
 }
 
+static uint64_t user_page_flags(int prot)
+{
+    if ((prot & PROT_WRITE) && (prot & PROT_EXEC)) {
+        return 0; /* W^X: executable mappings are never writable */
+    }
+    if (prot & PROT_EXEC) {
+        return VMM_USER_RX;
+    }
+    if (prot & PROT_WRITE) {
+        return VMM_USER_RW;
+    }
+    return VMM_USER_RO;
+}
+
 static int map_user_stack(void)
 {
     for (unsigned i = 0; i < USER_STACK_PAGES; i++) {
@@ -170,7 +189,7 @@ static int map_user_stack(void)
             return -ENOMEM;
         }
         memset((void *)(uintptr_t)(PHYS_MAP_BASE + frame), 0, PAGE_SIZE);
-        if (vmm_map(virt, frame, VMM_USER_FLAGS) != 0) {
+        if (vmm_map(virt, frame, VMM_USER_RW) != 0) {
             pmm_free_frame(frame);
             return -ENOMEM;
         }
@@ -182,6 +201,10 @@ static void build_initial_frame(struct process *p, uint64_t entry, int argc,
                                 char *const argv[])
 {
     uint64_t sp = USER_STACK_TOP;
+
+    /* The argv block is written into user pages before ring 3 starts. SMAP
+     * requires AC while the kernel touches them. */
+    usercopy_begin();
     uint64_t argv_va;
     uint64_t argv_ptrs[PROCESS_MAX_ARGS];
     int n = argc;
@@ -229,6 +252,7 @@ static void build_initial_frame(struct process *p, uint64_t entry, int argc,
     p->regs.rdi = (uint64_t)n;
     p->regs.rsi = argv_va;
     p->regs.rax = (uint64_t)n;
+    usercopy_end();
 }
 
 static int load_into_process(struct process *p, const char *path, int argc,
@@ -334,6 +358,9 @@ static void process_schedule(struct regs *frame)
         g_current = NULL;
         vfs_fdtable_select(0);
         vmm_space_switch(vmm_kernel_space());
+        /* A syscall may have arrived here through swapgs; put the user GS
+         * bases back before returning to the kernel idle path. */
+        percpu_restore_user();
         sched_return_to_kernel();
     }
 
@@ -341,6 +368,7 @@ static void process_schedule(struct regs *frame)
     g_current = next;
     vmm_space_switch(next->pml4_phys);
     tss_set_rsp0(next->kstack_top);
+    percpu_set_kernel_rsp(next->kstack_top);
     vfs_fdtable_select(next->fdt);
 
     if (prev && prev->state == PROC_ZOMBIE) {
@@ -437,6 +465,8 @@ int process_run(const char *path)
     p->state = PROC_RUNNING;
     g_current = p;
     tss_set_rsp0(p->kstack_top);
+    percpu_set_kernel_rsp(p->kstack_top);
+    percpu_restore_user();
     sched_run_first(&p->regs, p->kstack_top, p->pml4_phys);
 
     /* All processes are gone: sched_run_first() has returned. */
@@ -557,8 +587,10 @@ void process_wait(struct regs *frame, int pid, uint64_t status_ptr)
             int status = child->exit_status;
             int child_pid = child->pid;
 
-            if (status_ptr) {
-                *(int *)(uintptr_t)status_ptr = status;
+            if (status_ptr &&
+                copy_to_user(status_ptr, &status, sizeof(status)) != 0) {
+                frame->rax = (uint64_t)(int64_t)-EFAULT;
+                return;
             }
             release_process(child);
             frame->rax = (uint64_t)(int64_t)child_pid;
@@ -722,7 +754,7 @@ static uint64_t page_align_up(uint64_t value)
     return (value + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 }
 
-static bool map_zero_page(uint64_t virt)
+static bool map_zero_page(uint64_t virt, uint64_t flags)
 {
     uint64_t frame = pmm_alloc_frame();
 
@@ -730,7 +762,7 @@ static bool map_zero_page(uint64_t virt)
         return false;
     }
     memset((void *)(uintptr_t)(PHYS_MAP_BASE + frame), 0, PAGE_SIZE);
-    if (vmm_map(virt, frame, VMM_USER_FLAGS) != 0) {
+    if (vmm_map(virt, frame, flags) != 0) {
         pmm_free_frame(frame);
         return false;
     }
@@ -750,7 +782,9 @@ static void zero_mapped_range(uint64_t start, uint64_t end)
             /* A page inherited across fork is read-only until COW resolves;
              * break the sharing before the kernel writes zeros into it. */
             (void)vmm_cow_fault(page, 0x2 | 0x4);
+            usercopy_begin();
             memset((void *)(uintptr_t)from, 0, (size_t)(to - from));
+            usercopy_end();
         }
     }
 }
@@ -788,9 +822,12 @@ uint64_t process_mmap(uint64_t addr, uint64_t length, int prot, int flags)
     struct process *p = g_current;
     uint64_t start;
     uint64_t end;
+    uint64_t page_flags = user_page_flags(prot);
 
-    (void)prot;
     if (!p || length == 0) {
+        return (uint64_t)-EINVAL;
+    }
+    if (!page_flags) {
         return (uint64_t)-EINVAL;
     }
     if (!(flags & MAP_ANONYMOUS)) {
@@ -821,7 +858,7 @@ uint64_t process_mmap(uint64_t addr, uint64_t length, int prot, int flags)
     }
 
     for (uint64_t page = start; page < end; page += PAGE_SIZE) {
-        if (!map_zero_page(page)) {
+        if (!map_zero_page(page, page_flags)) {
             vmm_unmap_range(start, page - start);
             return (uint64_t)-ENOMEM;
         }
@@ -864,10 +901,10 @@ bool process_page_fault(uint64_t virt, uint64_t error)
     page = page_align_down(virt);
 
     if (virt >= p->heap_base && virt < p->heap_brk) {
-        return map_zero_page(page);
+        return map_zero_page(page, VMM_USER_RW);
     }
-    if (virt >= p->stack_limit && virt < p->stack_bottom) {
-        if (!map_zero_page(page)) {
+    if (virt >= p->stack_limit + USER_STACK_GUARD && virt < p->stack_bottom) {
+        if (!map_zero_page(page, VMM_USER_RW)) {
             return false;
         }
         if (page < p->stack_bottom) {

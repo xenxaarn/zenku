@@ -1,7 +1,11 @@
+#include <acpi.h>
+#include <arch/x86_64/cpu.h>
+#include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
 #include <console.h>
 #include <errno.h>
 #include <kio.h>
+#include <mm/usercopy.h>
 #include <mm/vmm.h>
 #include <pit.h>
 #include <process.h>
@@ -10,60 +14,55 @@
 #include <types.h>
 #include <vfs.h>
 
-/* User space occupies the lower canonical half. */
-#define USER_SPACE_END 0x0000800000000000ull
-
 #define MAX_USER_PATH 256
 
-static bool user_range_ok(uint64_t addr, uint64_t len)
+extern void syscall_entry(void);
+
+void syscall_init(void)
 {
-    uint64_t end;
+    uint64_t star = ((uint64_t)GDT_SYSRET_BASE << 48) |
+                    ((uint64_t)GDT_KERNEL_CODE << 32);
+    uint64_t efer;
 
-    if (len == 0) {
-        return true;
-    }
-    if (addr >= USER_SPACE_END || len > USER_SPACE_END - addr) {
-        return false;
-    }
+    cpu_write_msr(MSR_STAR, star);
+    cpu_write_msr(MSR_LSTAR, (uint64_t)(uintptr_t)syscall_entry);
+    /* Clear TF, IF, DF, and AC on entry. */
+    cpu_write_msr(MSR_SFMASK, (1ull << 8) | (1ull << 9) | (1ull << 10) |
+                                  (1ull << 18));
 
-    end = addr + len;
-    for (uint64_t page = addr & ~(PAGE_SIZE - 1); page < end;
-         page += PAGE_SIZE) {
-        if (!vmm_is_mapped(page)) {
-            return false;
-        }
-    }
-    return true;
-}
+    efer = cpu_read_msr(MSR_EFER);
+    efer |= EFER_SCE;
+    cpu_write_msr(MSR_EFER, efer);
 
-static int copy_user_path(uint64_t addr, char *out, size_t cap)
-{
-    for (size_t i = 0; i < cap; i++) {
-        if (!user_range_ok(addr + i, 1)) {
-            return -EFAULT;
-        }
-        out[i] = *(const char *)(uintptr_t)(addr + i);
-        if (out[i] == '\0') {
-            return 0;
-        }
-    }
-    return -ENAMETOOLONG;
+    percpu_init();
+    kprintf("syscall: SYSCALL/SYSRET enabled (star 0x%llx lstar %p)\n",
+            (uint64_t)star, (void *)(uintptr_t)syscall_entry);
 }
 
 static int64_t sys_read(int fd, uint64_t buf, uint64_t len)
 {
-    if (!user_range_ok(buf, len)) {
+    int64_t rc;
+
+    if (!user_range_ok(buf, len, true)) {
         return -EFAULT;
     }
-    return fd_read(fd, (void *)(uintptr_t)buf, (size_t)len);
+    usercopy_begin();
+    rc = fd_read(fd, (void *)(uintptr_t)buf, (size_t)len);
+    usercopy_end();
+    return rc;
 }
 
 static int64_t sys_write(int fd, uint64_t buf, uint64_t len)
 {
-    if (!user_range_ok(buf, len)) {
+    int64_t rc;
+
+    if (!user_range_ok(buf, len, false)) {
         return -EFAULT;
     }
-    return fd_write(fd, (const void *)(uintptr_t)buf, (size_t)len);
+    usercopy_begin();
+    rc = fd_write(fd, (const void *)(uintptr_t)buf, (size_t)len);
+    usercopy_end();
+    return rc;
 }
 
 static int64_t sys_open(uint64_t path_ptr, int flags)
@@ -71,7 +70,7 @@ static int64_t sys_open(uint64_t path_ptr, int flags)
     char path[MAX_USER_PATH];
     int rc;
 
-    rc = copy_user_path(path_ptr, path, sizeof(path));
+    rc = copy_user_string(path, path_ptr, sizeof(path));
     if (rc < 0) {
         return rc;
     }
@@ -93,15 +92,14 @@ static int64_t sys_fstat(int fd, uint64_t stat_ptr)
     struct vfs_stat st;
     int rc;
 
-    if (!user_range_ok(stat_ptr, sizeof(st))) {
+    if (!user_range_ok(stat_ptr, sizeof(st), true)) {
         return -EFAULT;
     }
     rc = fd_fstat(fd, &st);
     if (rc < 0) {
         return rc;
     }
-    memcpy((void *)(uintptr_t)stat_ptr, &st, sizeof(st));
-    return 0;
+    return copy_to_user(stat_ptr, &st, sizeof(st));
 }
 
 static int64_t sys_dup2(int oldfd, int newfd)
@@ -115,19 +113,18 @@ static int64_t sys_readdir(uint64_t path_ptr, uint32_t index, uint64_t out_ptr)
     char path[MAX_USER_PATH];
     int rc;
 
-    rc = copy_user_path(path_ptr, path, sizeof(path));
+    rc = copy_user_string(path, path_ptr, sizeof(path));
     if (rc < 0) {
         return rc;
     }
-    if (!user_range_ok(out_ptr, sizeof(ent))) {
+    if (!user_range_ok(out_ptr, sizeof(ent), true)) {
         return -EFAULT;
     }
     rc = vfs_readdir(path, index, &ent);
     if (rc < 0) {
         return rc;
     }
-    memcpy((void *)(uintptr_t)out_ptr, &ent, sizeof(ent));
-    return 0;
+    return copy_to_user(out_ptr, &ent, sizeof(ent));
 }
 
 static int64_t sys_getprocs(uint64_t out_ptr, int max)
@@ -141,13 +138,16 @@ static int64_t sys_getprocs(uint64_t out_ptr, int max)
     if (max > PROCESS_MAX) {
         max = PROCESS_MAX;
     }
-    if (max && !user_range_ok(out_ptr, (uint64_t)max * sizeof(infos[0]))) {
+    if (max && !user_range_ok(out_ptr, (uint64_t)max * sizeof(infos[0]),
+                              true)) {
         return -EFAULT;
     }
     count = process_snapshot(infos, max);
-    if (count > 0) {
-        memcpy((void *)(uintptr_t)out_ptr, infos,
-               (size_t)count * sizeof(infos[0]));
+    if (count <= 0) {
+        return count;
+    }
+    if (copy_to_user(out_ptr, infos, (size_t)count * sizeof(infos[0])) != 0) {
+        return -EFAULT;
     }
     return count;
 }
@@ -157,23 +157,24 @@ static int64_t sys_pipe(uint64_t fds_ptr)
     int fds[2];
     int rc;
 
-    if (!user_range_ok(fds_ptr, sizeof(fds))) {
+    if (!user_range_ok(fds_ptr, sizeof(fds), true)) {
         return -EFAULT;
     }
     rc = vfs_pipe(fds);
     if (rc < 0) {
         return rc;
     }
-    memcpy((void *)(uintptr_t)fds_ptr, fds, sizeof(fds));
-    return 0;
+    return copy_to_user(fds_ptr, fds, sizeof(fds));
 }
 
 static int64_t sys_chdir(uint64_t path_ptr)
 {
     char path[MAX_USER_PATH];
+    int rc;
 
-    if (copy_user_path(path_ptr, path, sizeof(path)) < 0) {
-        return -EFAULT;
+    rc = copy_user_string(path, path_ptr, sizeof(path));
+    if (rc < 0) {
+        return rc;
     }
     return vfs_chdir(path);
 }
@@ -183,7 +184,7 @@ static int64_t sys_getcwd(uint64_t buf, uint64_t size)
     char path[VFS_NAME_MAX];
     int len;
 
-    if (size == 0 || !user_range_ok(buf, size)) {
+    if (size == 0 || !user_range_ok(buf, size, true)) {
         return -EFAULT;
     }
     len = vfs_getcwd(path, sizeof(path));
@@ -193,7 +194,9 @@ static int64_t sys_getcwd(uint64_t buf, uint64_t size)
     if ((uint64_t)len > size) {
         return -ERANGE;
     }
-    memcpy((void *)(uintptr_t)buf, path, (size_t)len);
+    if (copy_to_user(buf, path, (size_t)len) != 0) {
+        return -EFAULT;
+    }
     return len;
 }
 
@@ -215,7 +218,7 @@ static int64_t sys_execve(struct regs *r, uint64_t path_ptr, uint64_t argv_ptr)
     int argc = 0;
     int rc;
 
-    rc = copy_user_path(path_ptr, path, sizeof(path));
+    rc = copy_user_string(path, path_ptr, sizeof(path));
     if (rc < 0) {
         return rc;
     }
@@ -225,14 +228,13 @@ static int64_t sys_execve(struct regs *r, uint64_t path_ptr, uint64_t argv_ptr)
             uint64_t slot = argv_ptr + (uint64_t)i * sizeof(uint64_t);
             uint64_t arg_ptr;
 
-            if (!user_range_ok(slot, sizeof(uint64_t))) {
+            if (copy_from_user(&arg_ptr, slot, sizeof(arg_ptr)) != 0) {
                 return -EFAULT;
             }
-            arg_ptr = *(const uint64_t *)(uintptr_t)slot;
             if (arg_ptr == 0) {
                 break;
             }
-            rc = copy_user_path(arg_ptr, args[i], PROCESS_ARG_MAX);
+            rc = copy_user_string(args[i], arg_ptr, PROCESS_ARG_MAX);
             if (rc < 0) {
                 return rc;
             }
@@ -247,7 +249,7 @@ static int64_t sys_execve(struct regs *r, uint64_t path_ptr, uint64_t argv_ptr)
 
 static int64_t sys_wait(int pid, uint64_t status_ptr, struct regs *r)
 {
-    if (status_ptr && !user_range_ok(status_ptr, sizeof(int))) {
+    if (status_ptr && !user_range_ok(status_ptr, sizeof(int), true)) {
         return -EFAULT;
     }
     process_wait(r, pid, status_ptr);
@@ -357,6 +359,10 @@ void syscall_dispatch(struct regs *r)
     case SYS_exit:
         process_exit(r, (int)r->rdi);
         return;
+    case SYS_poweroff:
+        acpi_poweroff();
+        ret = -ENOSYS;
+        break;
     default:
         kprintf("syscall: unknown number %llu\n", r->rax);
         ret = -ENOSYS;

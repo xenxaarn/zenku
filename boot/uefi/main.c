@@ -616,6 +616,33 @@ static void build_page_tables(uint64_t base)
     pml4[511] = (uint64_t)(uintptr_t)kernel_pdpt | PTE_PRESENT | PTE_WRITE;
 }
 
+static bool guid_equal(const struct efi_guid *a, const struct efi_guid *b)
+{
+    return memcmp(a, b, sizeof(*a)) == 0;
+}
+
+/* Locate the ACPI RSDP through the UEFI configuration table. The firmware
+ * keeps the RSDP in ACPI reclaim/NVS memory, so the physical address remains
+ * valid after ExitBootServices. */
+static uint64_t find_acpi_rsdp(void)
+{
+    static const struct efi_guid acpi20 = EFI_ACPI_20_TABLE_GUID;
+    static const struct efi_guid acpi10 = EFI_ACPI_10_TABLE_GUID;
+    struct efi_configuration_table *tables;
+
+    if (!g_st || !g_st->configuration_table) {
+        return 0;
+    }
+    tables = (struct efi_configuration_table *)g_st->configuration_table;
+    for (UINTN i = 0; i < g_st->number_of_table_entries; i++) {
+        if (guid_equal(&tables[i].vendor_guid, &acpi20) ||
+            guid_equal(&tables[i].vendor_guid, &acpi10)) {
+            return (uint64_t)(uintptr_t)tables[i].vendor_table;
+        }
+    }
+    return 0;
+}
+
 static int prepare_boot_info(void)
 {
     struct boot_info *bi;
@@ -684,11 +711,14 @@ static int prepare_boot_info(void)
     bi->kernel_phys_base = g_kernel_phys;
     bi->kernel_size = g_kernel_size;
     bi->kernel_entry = g_kernel_entry;
+    bi->rsdp_addr = find_acpi_rsdp();
     bi->boot_drive = 0;
 
     build_page_tables(g_pt_phys);
     kprintf("uefi: framebuffer %ux%u pitch %u at 0x%llx\n",
             bi->fb_width, bi->fb_height, bi->fb_pitch, bi->fb_addr);
+    kprintf("uefi: rsdp %s at 0x%llx\n",
+            bi->rsdp_addr ? "found" : "not found", bi->rsdp_addr);
     return 0;
 }
 

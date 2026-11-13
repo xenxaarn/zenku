@@ -45,6 +45,10 @@ BIOS or UEFI firmware.
 - **Fault-safe core** — GDT/TSS with double-fault IST, 256-entry IDT,
   readable panic dumps, boot-time PMM/VMM/heap self-tests, and user page
   faults that terminate only the offending process.
+- **Kernel hardening** — NX, SMEP, and SMAP enabled when the CPU reports
+  them, W^X user mappings, validated user copies with `stac`/`clac`, heap
+  redzones with poisoning and integrity checks, and a `SYSCALL`/`SYSRET`
+  fast path with a per-CPU GS block (`int 0x80` remains available).
 - **Filesystem and devices** — read-only ext2, a POSIX-style VFS, devfs under
   `/dev`, and 4 KiB pipes with `EAGAIN`, `EPIPE`, and EOF semantics.
 - **Processes** — per-process page tables and 16 KiB kernel stacks, copy-on-write
@@ -52,10 +56,15 @@ BIOS or UEFI firmware.
   stack growth, and 100 Hz round-robin preemption.
 - **Userland** — a freestanding C library, shared `crt0`, `/init`, `/bin/sh`
   with multi-stage pipelines and `<`/`>` redirection, plus `ls`, `cat`, `wc`,
-  `head`, `pwd`, `ps`, `sleep`, `kill`, `clear`, `uname`, and `echo`.
+  `head`, `pwd`, `ps`, `sleep`, `kill`, `clear`, `uname`, `echo`, and
+  `poweroff`.
+- **Firmware and power** — ACPI RSDP/FADT discovery on both boot paths, with
+  `poweroff` entering ACPI S5 and falling back to the FADT reset register,
+  the 8042, or the PCI reset control register.
 - **Automated verification** — serial/PS2/QEMU integration tests for the boot
   chain, memory, filesystem, syscalls, scheduler, shell, fault paths, and a
-  real OVMF boot through the UEFI loader.
+  real OVMF boot through the UEFI loader, plus native host unit tests for the
+  shared string and ext2 code.
 
 ## Screenshots
 
@@ -76,6 +85,7 @@ BIOS / SeaBIOS                            UEFI / OVMF
                              ├─ storage: ext2, VFS, devfs, pipes
                              ├─ execution: ELF loader, syscalls, user copies
                              ├─ processes: scheduler, COW fork, exec, wait
+                             ├─ hardening: NX, SMEP/SMAP, W^X, heap redzones
                              └─ desktop: framebuffer, terminal, RTC, compositor
 ```
 
@@ -138,11 +148,28 @@ make test-user    # ring-3 entry, syscalls, brk/mmap, and user copies
 make test-proc    # fork, exec, wait, pipes, preemption, COW stress
 make test-sh      # shell builtins, coreutils, and pipelines
 make test-uefi    # OVMF boots BOOTX64.EFI into the same kernel and userland
+make test-host    # native string/mem and ext2 unit tests (no QEMU)
 make check        # fast C/assembly/shell/Python syntax checks
 make check-link   # syntax checks plus stage3 and kernel link checks
 make layout       # validate the boot image layout
 make doctor       # report toolchain and dependency status
 ```
+
+The release matrix combines the fast static checks, native unit tests, and
+the QEMU boot suite:
+
+| Layer | Commands |
+|---|---|
+| Static | `make check`, `make check-link`, `make layout` |
+| Host | `make test-host` |
+| BIOS | `make test`, `make test-faults`, `make test-input`, `make test-serial`, `make test-fs`, `make test-user`, `make test-proc`, `make test-sh` |
+| UEFI | `make test-uefi` |
+
+`make test-host` builds the shared `lib/string.c` and `fs/ext2.c` sources for
+the host with `-fno-builtin`, generates ext2 fixture images with 1/2/4 KiB
+blocks, and checks deep paths, large directories, single/double/triple
+indirect blocks, and corrupt-directory rejection. It needs no QEMU or root
+privileges.
 
 ## Using Zenku
 
@@ -165,7 +192,12 @@ sh> cat /etc/motd | head -n 1
 sh> echo hello from user space | wc
 sh> sleep 1
 sh> ps
+sh> poweroff
 ```
+
+`poweroff` enters ACPI S5 through the FADT PM1 control registers. If the
+firmware does not cut power, the kernel falls back to the FADT reset register,
+the 8042 controller, the PCI reset control register, and finally a halt.
 
 The root filesystem is intentionally read-only. Output redirection works for
 writable devices such as `/dev/null`, while writes to ext2 are rejected with
@@ -181,7 +213,7 @@ live uptime, CMOS clock, task count, and memory use.
 ```
 boot/       stage1, stage2, stage3, and the UEFI loader
 kernel/     higher-half kernel: arch, memory, filesystem, scheduler, syscalls
-drivers/    PIC, PIT, PS/2, mouse, serial, and RTC drivers
+drivers/    PIC, PIT, PS/2, mouse, serial, RTC, and ACPI
 fs/         shared ext2 implementation used by every boot path and the kernel
 libc/       freestanding C library, ABI header, and standard headers
 user/       crt0, init, shell, and coreutils
@@ -204,6 +236,7 @@ Issues and pull requests are welcome. Before submitting a change:
 ```sh
 make check
 make check-link
+make test-host
 make test
 ```
 

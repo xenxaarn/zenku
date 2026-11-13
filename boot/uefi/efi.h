@@ -360,6 +360,11 @@ struct efi_graphics_output {
 /* System table and protocol GUIDs                                           */
 /* ------------------------------------------------------------------------- */
 
+struct efi_configuration_table {
+    struct efi_guid vendor_guid;
+    void *vendor_table;
+} PACKED;
+
 struct efi_system_table {
     struct efi_table_header hdr;
     CHAR16 *firmware_vendor;
@@ -393,6 +398,14 @@ struct efi_system_table {
       { 0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } }
 
 #define EFI_FILE_MODE_READ 0x0000000000000001ull
+
+/* ACPI 2.0+ and ACPI 1.0 RSDP configuration-table GUIDs. */
+#define EFI_ACPI_20_TABLE_GUID \
+    { 0x8868E871, 0xE4F1, 0x11D3, \
+      { 0xBC, 0x22, 0x00, 0x80, 0xC7, 0x3C, 0x88, 0x81 } }
+#define EFI_ACPI_10_TABLE_GUID \
+    { 0xEB9D2D30, 0x2D88, 0x11D3, \
+      { 0x9A, 0x16, 0x00, 0x90, 0x27, 0x3F, 0xC1, 0x4D } }
 
 /* Copy an ASCII string into UTF-16 storage. Returns the character count. */
 EFI_INLINE UINTN efi_ascii_to_utf16(const char *source, CHAR16 *destination,

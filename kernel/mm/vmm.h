@@ -20,6 +20,12 @@
 #define VMM_KERNEL_FLAGS (PTE_PRESENT | PTE_WRITE)
 #define VMM_USER_FLAGS   (PTE_PRESENT | PTE_WRITE | PTE_USER)
 
+/* User mappings are W^X: executable pages are read-only, writable pages are
+ * non-executable. PTE_NX is stripped automatically on CPUs without NX. */
+#define VMM_USER_RX      (PTE_PRESENT | PTE_USER)
+#define VMM_USER_RO      (PTE_PRESENT | PTE_USER | PTE_NX)
+#define VMM_USER_RW      (PTE_PRESENT | PTE_WRITE | PTE_USER | PTE_NX)
+
 /* Physical address of the PML4 installed by stage3. */
 #define VMM_PML4_PHYS 0x1000ull
 
@@ -32,6 +38,7 @@ int vmm_unmap_range(uint64_t virt, uint64_t length);
 int vmm_protect(uint64_t virt, uint64_t flags);
 uint64_t vmm_translate(uint64_t virt);
 bool vmm_is_mapped(uint64_t virt);
+bool vmm_user_accessible(uint64_t virt, bool write);
 void vmm_flush_tlb(uint64_t virt);
 
 /* Per-process address spaces. The kernel half is shared; only PML4 entries

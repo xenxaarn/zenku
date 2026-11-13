@@ -380,10 +380,14 @@ int ext2_iterate(struct ext2_fs *fs, uint32_t dir_ino, ext2_dir_cb cb,
             uint8_t name_len = rec[6];
             uint8_t type = rec[7];
 
-            if (rec_len < 8 || pos + rec_len > fs->block_size) {
-                break;
+            if (rec_len < 8 || pos + rec_len > fs->block_size ||
+                8 + name_len > rec_len) {
+                /* A directory block must be fully covered by a chain of
+                 * valid records. Treat anything else as corruption rather
+                 * than silently returning a partial listing. */
+                return -1;
             }
-            if (ino != 0 && name_len > 0 && 8 + name_len <= rec_len) {
+            if (ino != 0 && name_len > 0) {
                 char name[256];
                 int rc;
 
@@ -426,9 +430,14 @@ int ext2_lookup(struct ext2_fs *fs, const char *path, uint32_t *ino_out)
         if (len == 1 && start[0] == '.') {
             /* current directory */
         } else if (len == 2 && start[0] == '.' && start[1] == '.') {
-            if (ino != EXT2_ROOT_INO) {
+            /* Resolve ".." through the directory's own entry so it works at
+             * any depth, not just at the root. */
+            uint32_t parent;
+
+            if (dir_lookup(fs, ino, "..", 2, &parent) != 0) {
                 return -1;
             }
+            ino = parent;
         } else {
             uint32_t next;
 

@@ -28,6 +28,16 @@ static int load_segment(const struct elf64_phdr *ph, const uint8_t *file,
 {
     uint64_t vstart;
     uint64_t vend;
+    uint64_t map_flags;
+
+    /* Enforce W^X at load time. Text is read-only and executable; data and
+     * rodata are non-executable. */
+    if ((ph->flags & PF_W) && (ph->flags & PF_X)) {
+        return -ENOEXEC;
+    }
+    map_flags = (ph->flags & PF_W)   ? VMM_USER_RW
+                : (ph->flags & PF_X) ? VMM_USER_RX
+                                     : VMM_USER_RO;
 
     if (ph->filesz > ph->memsz || ph->filesz > file_size ||
         ph->offset > file_size - ph->filesz) {
@@ -68,7 +78,7 @@ static int load_segment(const struct elf64_phdr *ph, const uint8_t *file,
             memcpy(target + dst, file + src, copy_end - copy_start);
         }
 
-        if (vmm_map(page, frame, VMM_USER_FLAGS) != 0) {
+        if (vmm_map(page, frame, map_flags) != 0) {
             pmm_free_frame(frame);
             return -ENOMEM;
         }

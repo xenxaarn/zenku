@@ -98,6 +98,30 @@ int main(long argc, char **argv)
         print("init: bad user pointer FAILED\n");
     }
 
+    if (sys_write(1, (const void *)0xFFFF800000000000ul, 4) == -14) {
+        print("init: kernel pointer rejected\n");
+    } else {
+        print("init: kernel pointer FAILED\n");
+    }
+
+    if (sys_read(0, (void *)(uintptr_t)&main, 1) == -14) {
+        print("init: write to text rejected\n");
+    } else {
+        print("init: write to text FAILED\n");
+    }
+
+    {
+        void *wx = sys_mmap(0, 4096, PROT_READ | PROT_WRITE | PROT_EXEC,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+        if (wx == MAP_FAILED) {
+            print("init: writable-exec mapping rejected\n");
+        } else {
+            sys_munmap(wx, 4096);
+            print("init: writable-exec mapping FAILED\n");
+        }
+    }
+
     {
         int pfd[2];
         char pbuf[16];

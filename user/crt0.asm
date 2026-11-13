@@ -18,7 +18,7 @@ _start:
 
     mov rdi, rax
     mov rax, 60                 ; exit(status)
-    int 0x80
+    syscall
 
 .hang:
     hlt

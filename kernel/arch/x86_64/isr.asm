@@ -100,6 +100,12 @@ isr_default:
 isr_common:
     cld
 
+    ; Never let a user-set AC flag leak into a kernel interrupt handler:
+    ; with SMAP, AC=1 would allow supervisor access to user pages.
+    pushfq
+    and dword [rsp], 0xFFFBFFFF
+    popfq
+
     push rax
     push rbx
     push rcx

@@ -1,3 +1,4 @@
+#include <arch/x86_64/cpu.h>
 #include <kio.h>
 #include <kpanic.h>
 #include <mm/pmm.h>
@@ -59,6 +60,15 @@ static inline uint64_t *phys_to_ptr(uint64_t phys)
 static inline uint64_t entry_addr(uint64_t entry)
 {
     return entry & PTE_ADDR_MASK;
+}
+
+/* An NX bit on a CPU without EFER.NXE is reserved and would fault. */
+static inline uint64_t vmm_nx_flags(uint64_t flags)
+{
+    if (!g_cpu.nx) {
+        flags &= ~PTE_NX;
+    }
+    return flags;
 }
 
 static uint64_t *space_walk(uint64_t *pml4, uint64_t virt, bool create,
@@ -130,10 +140,19 @@ static int clone_level(uint64_t src_phys, uint64_t dst_phys, unsigned level)
         }
 
         if (level == 1) {
-            /* Share the leaf page. Both parent and child lose write access;
-             * the first write allocates a private copy. */
             uint64_t page = entry_addr(se);
 
+            /* Read-only pages (executable text and rodata) are shared without
+             * COW. A write to them must remain a protection fault so W^X is
+             * preserved across fork. */
+            if (!(se & PTE_WRITE)) {
+                page_ref_get(page);
+                dst[i] = se;
+                continue;
+            }
+
+            /* Writable pages are shared copy-on-write. Both parent and child
+             * lose write access; the first write allocates a private copy. */
             page_ref_get(page);
             src[i] = (se & ~PTE_WRITE) | PTE_COW;
             dst[i] = (se & ~PTE_WRITE) | PTE_COW;
@@ -338,6 +357,7 @@ int vmm_map(uint64_t virt, uint64_t phys, uint64_t flags)
         return -1;
     }
 
+    flags = vmm_nx_flags(flags);
     pte = vmm_walk(virt, true, flags);
     if (!pte) {
         return -1;
@@ -401,6 +421,7 @@ int vmm_protect(uint64_t virt, uint64_t flags)
     if (!pte || !(*pte & PTE_PRESENT)) {
         return -1;
     }
+    flags = vmm_nx_flags(flags);
     *pte = (*pte & PTE_ADDR_MASK) | (flags & ~PTE_ADDR_MASK);
     vmm_flush_tlb(virt);
     return 0;
@@ -441,6 +462,19 @@ uint64_t vmm_translate(uint64_t virt)
 bool vmm_is_mapped(uint64_t virt)
 {
     return vmm_translate(virt) != 0;
+}
+
+bool vmm_user_accessible(uint64_t virt, bool write)
+{
+    uint64_t *pte = vmm_walk(virt, false, 0);
+
+    if (!pte || !(*pte & PTE_PRESENT) || !(*pte & PTE_USER)) {
+        return false;
+    }
+    if (write && !(*pte & PTE_WRITE) && !(*pte & PTE_COW)) {
+        return false;
+    }
+    return true;
 }
 
 void vmm_flush_tlb(uint64_t virt)

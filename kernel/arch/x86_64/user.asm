@@ -27,16 +27,16 @@ user_enter:
     pushfq
     mov [rel kernel_rsp], rsp
 
-    mov ax, 0x23                ; GDT_USER_DATA | RPL 3
+    mov ax, 0x1B                ; GDT_USER_DATA | RPL 3
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
 
-    push qword 0x23             ; ss: GDT_USER_DATA | RPL 3
+    push qword 0x1B             ; ss: GDT_USER_DATA | RPL 3
     push rsi                    ; rsp
     push qword 0x202            ; rflags: IF=1, reserved bit 1
-    push qword 0x1B             ; cs: GDT_USER_CODE | RPL 3
+    push qword 0x23             ; cs: GDT_USER_CODE | RPL 3
     push rdi                    ; rip
     iretq
 
@@ -84,7 +84,7 @@ sched_run_first:
     add r9, 8
     loop .copy_frame
 
-    mov ax, 0x23                ; user data segments
+    mov ax, 0x1B                ; user data segments
     mov ds, ax
     mov es, ax
     mov fs, ax

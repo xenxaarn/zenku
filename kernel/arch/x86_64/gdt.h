@@ -7,9 +7,13 @@
 /* Selector values for the kernel/user segments we install. */
 #define GDT_KERNEL_CODE 0x08
 #define GDT_KERNEL_DATA 0x10
-#define GDT_USER_CODE   0x18
-#define GDT_USER_DATA   0x20
+#define GDT_USER_DATA   0x18
+#define GDT_USER_CODE   0x20
 #define GDT_TSS         0x28
+
+/* SYSRET derives CS as STAR[63:48] + 16 and SS as STAR[63:48] + 8. With the
+ * user descriptors in the order data-then-code, STAR's user base is 0x10. */
+#define GDT_SYSRET_BASE 0x10
 
 /* 64-bit Task State Segment (104 bytes). */
 struct tss {

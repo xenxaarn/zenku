@@ -14,16 +14,18 @@ STAGE3_LD    := linker/stage3.ld
 KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
                 kernel/console.c kernel/desktop.c kernel/tty.c \
                 kernel/arch/x86_64/gdt.c kernel/arch/x86_64/idt.c \
-                kernel/arch/x86_64/irq.c \
+                kernel/arch/x86_64/irq.c kernel/arch/x86_64/cpu.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
+                kernel/mm/usercopy.c \
                 kernel/fs/ramdisk.c kernel/fs/vfs.c kernel/fs/devfs.c kernel/fs/pipe.c fs/ext2.c \
                 kernel/exec/loader.c kernel/sched/process.c kernel/syscall/syscall.c kernel/idle.c \
                 drivers/pic.c drivers/pit.c drivers/ps2.c drivers/mouse.c drivers/serial.c \
-                drivers/time/rtc.c \
+                drivers/time/rtc.c drivers/acpi.c \
                 lib/string.c lib/kio.c
 KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
                 kernel/arch/x86_64/gdt_flush.asm \
                 kernel/arch/x86_64/user.asm \
+                kernel/arch/x86_64/syscall.asm \
                 kernel/arch/x86_64/isr.asm
 KERNEL_LD    := linker/kernel.ld
 
@@ -65,6 +67,7 @@ USER_KILL_ELF   := $(BUILD)/user/kill.elf
 USER_HEAD_ELF   := $(BUILD)/user/head.elf
 USER_CLEAR_ELF  := $(BUILD)/user/clear.elf
 USER_PWD_ELF    := $(BUILD)/user/pwd.elf
+USER_POWEROFF_ELF := $(BUILD)/user/poweroff.elf
 USER_BIN_DIR    := $(BUILD)/user/bin
 
 USER_LIBC_SRCS  := libc/src/string.c libc/src/stdlib.c libc/src/stdio.c \
@@ -82,7 +85,7 @@ KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
 KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
                     $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
 
-.PHONY: all iso run debug test test-input test-serial test-fs test-user test-proc test-sh test-uefi check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs uefi
+.PHONY: all iso run debug test test-input test-serial test-fs test-user test-proc test-sh test-uefi test-host check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs uefi
 
 all: iso
 
@@ -296,10 +299,16 @@ $(USER_PWD_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
 		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/pwd.o $(USER_LIBC_OBJS)
 
+$(USER_POWEROFF_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/poweroff.o user/user.ld $(USER_LIBC_OBJS)
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/poweroff.o $(USER_LIBC_OBJS)
+
 $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
            $(USER_CAT_ELF) $(USER_UNAME_ELF) $(USER_LS_ELF) $(USER_WC_ELF) \
            $(USER_PS_ELF) $(USER_SLEEP_ELF) $(USER_KILL_ELF) \
            $(USER_HEAD_ELF) $(USER_CLEAR_ELF) $(USER_PWD_ELF) \
+           $(USER_POWEROFF_ELF) \
            scripts/mkrootfs.sh | $(BUILD)/dirs
 	@mkdir -p $(USER_BIN_DIR)
 	cp $(USER_ECHO_ELF) $(USER_BIN_DIR)/echo
@@ -314,6 +323,7 @@ $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
 	cp $(USER_HEAD_ELF) $(USER_BIN_DIR)/head
 	cp $(USER_CLEAR_ELF) $(USER_BIN_DIR)/clear
 	cp $(USER_PWD_ELF) $(USER_BIN_DIR)/pwd
+	cp $(USER_POWEROFF_ELF) $(USER_BIN_DIR)/poweroff
 	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 16 $(USER_INIT_ELF) $(USER_BIN_DIR)
 
 $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
@@ -363,6 +373,10 @@ test-sh: $(ISO)
 
 test-uefi: $(ISO)
 	QEMU=$(QEMU) scripts/run-uefi-test.sh $(ISO)
+
+# Native unit tests for code shared with the kernel (string/mem, ext2).
+test-host:
+	$(MAKE) -C tests/host run
 
 check:
 	scripts/syntax-check.sh
@@ -426,6 +440,8 @@ help:
 	@echo "  test-user  run /init in ring 3 and check the syscalls"
 	@echo "  test-proc  check fork, exec, wait, pipes, and preemption"
 	@echo "  test-sh    run /bin/sh builtins and external commands"
+	@echo "  test-uefi  boot the ISO through OVMF"
+	@echo "  test-host  run native string/ext2 unit tests"
 	@echo "  test-faults inject #DE/#UD/#GP/#PF and check panics"
 	@echo "  check      fast syntax check of C/asm/shell/python"
 	@echo "  check-link syntax check plus stage3 and kernel links"
