@@ -1,9 +1,9 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 6 complete (graphical desktop, RTC clock, 60 Hz compositor)
+**Status:** Phase 7 complete (BIOS and UEFI boot paths, graphical desktop, 60 Hz compositor)
 **Repository:** self-contained; all sources, build scripts, and documentation live here.
 **Plan file:** this document is the canonical project plan.
-**Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
+**Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and UEFI (OVMF)
 **Default name:** `Zenku`, kernel codename `Thunder` (branding centralized in `include/version.h`)
 
 ---
@@ -12,7 +12,7 @@
 
 | Decision | Choice |
 |---|---|
-| Firmware | BIOS first (two-stage + 32-bit loader), UEFI application in Phase 7 |
+| Firmware | BIOS chain plus a native UEFI application; both boot the same ISO |
 | Toolchain | Bootstrap real `x86_64-elf` via script; host `gcc`/`clang` freestanding fallback |
 | Userland | Tiny libc + `sh` + coreutils + graphical desktop |
 | CPU model | Uniprocessor x86_64, 4-level paging, preemptive round-robin |
@@ -74,22 +74,38 @@ stage2  (16-bit + unreal mode, ≤64 KiB, phys 0x9000)
   │  · INT 15h E820 memory map  → boot_params @ 0x6000
   │  · INT 10h VBE mode selection + LFB info (preference list, fallback text)
   │  · minimal ISO9660 reader (PVD → root dir → file extents)
-  │  · loads /ROOT.EXT2 to phys 0x04000000 (32 MiB)
+  │  · loads /ROOT.EXT2 to phys 0x04000000 (16 MiB)
   │  · loads /STAGE3.BIN to phys 0x20000
   │  · enters 32-bit protected mode, flat segments, jumps to stage3
   ▼
 stage3  (32-bit C + asm, ≤512 KiB, phys 0x20000)
   │  · validates boot_params, initrd magic and ELF headers
   │  · reuses fs/ext2 core over a memory block device
-  │  · opens /boot/kernel.elf, parses ELF64, loads PT_LOAD to p_paddr
+  │  · opens /kernel, parses ELF64, loads PT_LOAD to p_paddr
   │  · zeroes .bss, builds PML4/PDPT/PD: identity 0–1 GiB, kernel high half,
   │    direct physical map (4 GiB with 2 MiB pages)
   │  · enables PAE + long mode, far-jumps to 64-bit trampoline
   ▼
-kernel  (64-bit, linked at 0xFFFFFFFF80000000, LMA 0x100000)
+kernel  (64-bit, linked at 0xFFFFFFFF80000000, LMA 0x00200000)
      · _start: stack, clear BSS, GDT/TSS, IDT, CPU features
      · copies boot_info, initializes PMM/VMM/heap, drivers, VFS
      · mounts ext2 ramdisk, execs /init, starts scheduler
+```
+
+The UEFI path reaches the same kernel entry with a shorter chain:
+
+```
+UEFI/OVMF
+  │  El Torito no-emulation FAT image
+  ▼
+BOOTX64.EFI  (PE32+ application, boot/uefi)
+  │  · SimpleFileSystem → ROOT.EXT2 → shared fs/ext2 core → /kernel
+  │  · GOP mode selection (1024×768, 8:8:8 channels)
+  │  · EFI memory map → merged E820 entries clamped to 4 GiB
+  │  · builds the same page tables and boot_info with BOOT_FLAG_UEFI
+  │  · ExitBootServices, loads CR3, jumps with boot_info in RDI
+  ▼
+kernel  (same entry, ABI, and userland as the BIOS path)
 ```
 
 ### 3.2 ISO layout and why it is robust
@@ -100,8 +116,9 @@ build/os.iso
 │                           2048 B stage1 + stage2 (max 64 KiB)
 │                           Boot Info Table at file offset 8 (patched by xorriso)
 ├── STAGE3.BIN          ← 32-bit loader (flat binary)
-├── ROOT.EXT2           ← 32 MiB ext2 root filesystem
-├── /boot/kernel.elf    ← (inside ROOT.EXT2, loaded by stage3)
+├── ROOT.EXT2           ← 16 MiB ext2 root filesystem
+├── efi.img             ← FAT16 El Torito image: EFI/BOOT/BOOTX64.EFI + ROOT.EXT2
+├── /kernel             ← (inside ROOT.EXT2, loaded by either boot path)
 └── README.TXT
 ```
 
@@ -117,12 +134,12 @@ build/os.iso
 * Kernel and ext2 image live as real ISO files, so `os.iso` stays small and
   inspectable.
 
-### 3.3 Physical memory map (boot-time contract)
+### 3.3 Physical memory map (BIOS boot-time contract)
 
 | Range | Use |
 |---|---|
 | `0x00000000–0x000004FF` | IVT / BIOS data area (reserved) |
-| `0x00001000–0x00001FFF` | stage3 PML4 |
+| `0x00001000–0x00001FFF` | stage3 PML4; UEFI places its PML4 copy here |
 | `0x00002000–0x00002FFF` | stage3 PDPTs |
 | `0x00003000–0x00004FFF` | stage3 PDs (identity, kernel, physmap) |
 | `0x00005000–0x00005FFF` | E820 map (max 128 × 24 B) |
@@ -132,9 +149,16 @@ build/os.iso
 | `0x00020000–0x0009FFFF` | stage3 (≤512 KiB, linker assert) |
 | `0x000A0000–0x000FFFFF` | VGA/ROM hole (reserved) |
 | `0x00100000–…` | kernel ELF physical image (LMA) |
-| `0x04000000–0x05FFFFFF` | ext2 root image (32 MiB) |
+| `0x04000000–0x04FFFFFF` | ext2 root image (16 MiB) |
 | LFB physical base | VBE linear framebuffer (reserved from PMM) |
 | remaining usable RAM | PMM frames ≥ 4 KiB, excluding all of the above |
+
+On UEFI the loader allocates ROOT.EXT2, the kernel segments, `boot_info`, the
+E820 buffer, the font, and the page tables with `AllocatePages`, then marks
+each range reserved in the generated E820 map. The PML4 template is copied to
+`0x00001000` after `ExitBootServices` because the kernel ABI fixes
+`VMM_PML4_PHYS`; its lower page-table levels remain in loader-allocated
+memory.
 
 Minimum RAM: 256 MiB. Recommended/tested: 2 GiB.
 
@@ -609,10 +633,11 @@ zenku/
 | `make` / `make all` | `build/os.iso` |
 | `make toolchain` | bootstraps `x86_64-elf` (optional) |
 | `make boot` | `build/boot/stage1.bin` (stage1+stage2), `build/boot/STAGE3.BIN` |
-| `make kernel` | `build/boot/kernel.elf` |
+| `make kernel` | `build/kernel.elf` |
 | `make userland` | ELF binaries + `libc.a` |
-| `make rootfs` | `build/root.ext2` (32 MiB, populated) |
+| `make rootfs` | `build/rootfs.ext2` (16 MiB, populated) |
 | `make iso` | `build/os.iso` via xorriso |
+| `make uefi` | `build/uefi/BOOTX64.EFI` |
 | `make run` | QEMU graphical boot |
 | `make debug` | QEMU `-s -S` + GDB script |
 | `make test` | headless boot + integration tests |
@@ -622,19 +647,19 @@ zenku/
 | `make clean` / `distclean` | remove `build/` / also generated toolchain artifacts |
 
 Artifacts: `build/obj/<subsystem>/…`, `build/bin/`, `build/rootfs/`,
-`build/root.ext2`, `build/os.iso`.
+`build/rootfs.ext2`, `build/efi.img`, `build/os.iso`.
 
 ### 5.4 Root filesystem image
 
 ```sh
-dd if=/dev/zero of=build/root.ext2 bs=1M count=32 status=none
+dd if=/dev/zero of=build/rootfs.ext2 bs=1M count=16 status=none
 mke2fs -q -t ext2 -F -b 1024 -I 128 -m 0 \
        -L ZENKU_ROOT -O ^64bit,^metadata_csum \
-       -d build/rootfs build/root.ext2
+       -d build/rootfs build/rootfs.ext2
 ```
 
 `build/rootfs/` is populated from `user/` outputs plus `/etc/motd`,
-`/boot/kernel.elf`, and directory skeleton. `mke2fs -d` requires no root
+`/kernel`, and directory skeleton. `mke2fs -d` requires no root
 privileges; verified e2fsprogs 1.47.4 is installed.
 
 ### 5.5 ISO assembly
@@ -643,16 +668,13 @@ privileges; verified e2fsprogs 1.47.4 is installed.
 xorriso -as mkisofs \
   -r -J -V ZENKU \
   -b boot/stage1.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
+  -eltorito-alt-boot -e efi.img -no-emul-boot \
   -o build/os.iso build/iso
 ```
 
-Phase 7 adds:
-
-```sh
-  -eltorito-alt-boot -e boot/efi.img -no-emul-boot
-```
-
-where `boot/efi.img` is a small FAT image containing `EFI/BOOT/BOOTX64.EFI`.
+`build/efi.img` is a FAT16 image containing `EFI/BOOT/BOOTX64.EFI` and a copy
+of `ROOT.EXT2`. The BIOS entry and the UEFI entry share the same ISO and the
+same kernel image.
 
 ### 5.6 Run / debug
 
@@ -776,7 +798,7 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
 `/etc/motd`, `EFAULT` on an unmapped pointer, pipe transfer/EAGAIN/EOF,
 `EROFS` on ext2 write, and a clean `exit` back to the shell.
 
-### Phase 5 — Scheduler, fork/exec/wait, libc, shell (≈4 sessions)
+### Phase 5 — Scheduler, fork/exec/wait, libc, shell (≈4 sessions) — COMPLETE
 
 * [x] Task/process model, round-robin preemptive scheduler, return-to-kernel
   idle path.
@@ -824,19 +846,26 @@ stress.
 content stays correct; no tearing or cursor trails in QEMU; 60 Hz redraw keeps
 the shell responsive.
 
-### Phase 7 — UEFI boot path (≈2 sessions)
+### Phase 7 — UEFI boot path (≈2 sessions) — COMPLETE
 
 * `BOOTX64.EFI` built with `clang --target=x86_64-pc-win32` + `lld-link`
-  (verified available) and vendored minimal EFI headers (no gnu-efi needed).
+  using vendored minimal EFI headers (no gnu-efi). Implemented in
+  `boot/uefi/efi.h` and `boot/uefi/main.c`.
 * GOP framebuffer discovery, UEFI memory map, `SimpleFileSystem` to read
-  `ROOT.EXT2` and `kernel.elf`, `ExitBootServices`.
-* Build page tables and jump into the same kernel entry, with the same
-  `boot_info` ABI (UEFI flag variant: memory-map descriptor translation).
-* `efi.img` FAT image + dual El Torito entries in `os.iso`.
+  `ROOT.EXT2` and load `/kernel` through the shared ext2/ELF64 core,
+  `ExitBootServices`.
+* Page tables and the same kernel entry with the same `boot_info` ABI;
+  `BOOT_FLAG_UEFI` marks the firmware path, EFI descriptors are translated
+  into merged E820 entries, and the PML4 template is copied to the fixed
+  `VMM_PML4_PHYS` address.
+* FAT16 `efi.img` + dual El Torito entries in `os.iso`, with a 16 MiB root
+  filesystem shared by both boot paths.
+* `make uefi` builds the loader; `make test-uefi` boots the ISO with OVMF.
 
-**Accept:** `qemu-system-x86_64 -bios /usr/share/edk2/ovmf/OVMF_CODE.fd
+**Accept:** `qemu-system-x86_64 -bios /usr/share/OVMF/OVMF_CODE.fd
 -cdrom build/os.iso -m 2G` reaches the same kernel banner and userland;
-SeaBIOS boot still works from the same ISO.
+SeaBIOS boot still works from the same ISO. **Met:** both firmware paths
+pass the automated boot tests and reach the desktop.
 
 ### Phase 8 — Hardening, extras, release (≈2 sessions)
 
@@ -894,7 +923,7 @@ by a bad usercopy test; both BIOS and UEFI ISO boots work; docs match behavior.
 | COW/fork bugs | Data corruption | Refcounted `struct page`, write-protect both sides, COW stress test, eager-copy fallback compile flag |
 | Kernel stack overflow | Panic/corruption | 16 KiB stacks, guard pages, shallow path depth, stack-usage warnings |
 | Userland pointer abuse | Kernel crash | VMA validation + exception-table fixups, SMEP/SMAP, NX |
-| Ramdisk consumes RAM | 512 MiB machines tight | 32 MiB image, minimum 256 MiB, later ATA direct mount |
+| Ramdisk consumes RAM | 512 MiB machines tight | 16 MiB image, minimum 256 MiB, later ATA direct mount |
 | Host vs cross compiler differences | Build breaks | CI builds both; `WERROR` toggle; documented versions |
 | Scope | Incomplete release | Phase gates with bootable acceptance, no phase skipped |
 

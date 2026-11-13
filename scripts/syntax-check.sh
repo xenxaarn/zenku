@@ -53,6 +53,9 @@ LD=${LD:-ld}
 STAGE3_CFLAGS=${STAGE3_CFLAGS:-$(make_print STAGE3_CFLAGS)}
 KERNEL_CFLAGS=${KERNEL_CFLAGS:-$(make_print KERNEL_CFLAGS)}
 USER_CFLAGS=${USER_CFLAGS:-$(make_print USER_CFLAGS)}
+UEFI_CC=${UEFI_CC:-$(make_print UEFI_CC)}
+UEFI_CC=${UEFI_CC:-clang}
+UEFI_CFLAGS=${UEFI_CFLAGS:-$(make_print UEFI_CFLAGS)}
 
 # Source lists come from the Makefile so the check always covers exactly what
 # the real build compiles.
@@ -86,10 +89,10 @@ fail() {
 }
 
 check_c() {
-    local label=$1 flags=$2 file=$3 output
+    local label=$1 compiler=$2 flags=$3 file=$4 output
 
     # shellcheck disable=SC2086
-    if ! output=$("$CC" $flags -fsyntax-only "$file" 2>&1); then
+    if ! output=$("$compiler" $flags -fsyntax-only "$file" 2>&1); then
         fail "C/$label" "$file" "$output"
         return 1
     fi
@@ -177,14 +180,19 @@ echo "syntax-check: cc=$CC nasm=$NASM ld=$LD check=$([ "$LINK" -eq 1 ] && echo w
 # ---------------------------------------------------------------------------
 for file in "${C_FILES[@]}"; do
     case "$file" in
-    boot/stage3/*|fs/*|lib/*) check_c stage3 "$STAGE3_CFLAGS" "$file" ;;
+    boot/stage3/*|fs/*|lib/*) check_c stage3 "$CC" "$STAGE3_CFLAGS" "$file" ;;
     esac
     case "$file" in
-    kernel/*|drivers/*|fs/*|lib/*) check_c kernel "$KERNEL_CFLAGS" "$file" ;;
+    kernel/*|drivers/*|fs/*|lib/*) check_c kernel "$CC" "$KERNEL_CFLAGS" "$file" ;;
     esac
     if [ -n "$USER_CFLAGS" ]; then
         case "$file" in
-        user/*|libc/*) check_c user "$USER_CFLAGS" "$file" ;;
+        user/*|libc/*) check_c user "$CC" "$USER_CFLAGS" "$file" ;;
+        esac
+    fi
+    if [ -n "$UEFI_CFLAGS" ]; then
+        case "$file" in
+        boot/uefi/*|fs/*|lib/*) check_c uefi "$UEFI_CC" "$UEFI_CFLAGS" "$file" ;;
         esac
     fi
 done

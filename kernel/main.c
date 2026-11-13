@@ -113,6 +113,8 @@ void kmain(struct boot_info *bi)
     kprintf("kernel: kmain at %p\n", (void *)(uintptr_t)&kmain);
     kprintf("kernel: boot_info at %p (v%u, flags 0x%x)\n",
             (void *)bi, bi->version, bi->flags);
+    kprintf("kernel: firmware %s\n",
+            (bi->flags & BOOT_FLAG_UEFI) ? "UEFI" : "BIOS");
 
     if (bi->magic != BOOT_MAGIC) {
         kpanic("boot_info magic mismatch: 0x%llx", bi->magic);

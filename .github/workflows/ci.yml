@@ -16,7 +16,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential nasm xorriso e2fsprogs qemu-system-x86
+            build-essential nasm clang lld xorriso e2fsprogs \
+            mtools dosfstools ovmf qemu-system-x86
 
       - name: Build ISO
         run: make -j"$(nproc)"
@@ -28,6 +29,9 @@ jobs:
 
       - name: Run boot test
         run: make test
+
+      - name: Run UEFI boot test
+        run: make test-uefi
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4

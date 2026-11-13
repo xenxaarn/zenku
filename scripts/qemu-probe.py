@@ -78,6 +78,8 @@ def main() -> int:
                     help="wait for this serial line before monitor commands")
     ap.add_argument("--serial-send", default="",
                     help="type this text on COM1 and capture the reply")
+    ap.add_argument("--bios", default="",
+                    help="firmware image to pass to QEMU (-bios), e.g. OVMF")
     args = ap.parse_args()
 
     iso = os.path.abspath(args.iso)
@@ -89,18 +91,21 @@ def main() -> int:
     serial_arg = (f"unix:{serial_sock_path},server=on,nowait"
                   if serial_sock_path else f"file:{serial}")
 
+    qemu_args = [
+        qemu,
+        "-cdrom", iso,
+        "-m", "2G",
+        "-machine", "pc",
+        "-display", "none",
+        "-serial", serial_arg,
+        "-monitor", f"unix:{sock},server,nowait",
+        "-device", "isa-debug-exit,iobase=0x501,iosize=0x04",
+        "-no-reboot",
+    ]
+    if args.bios:
+        qemu_args[1:1] = ["-bios", args.bios]
     proc = subprocess.Popen(
-        [
-            qemu,
-            "-cdrom", iso,
-            "-m", "2G",
-            "-machine", "pc",
-            "-display", "none",
-            "-serial", serial_arg,
-            "-monitor", f"unix:{sock},server,nowait",
-            "-device", "isa-debug-exit,iobase=0x501,iosize=0x04",
-            "-no-reboot",
-        ],
+        qemu_args,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
     )

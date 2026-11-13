@@ -3,14 +3,14 @@
 **A 64-bit Unix-like operating system, bootloader, and userland built from
 scratch in C and x86_64 assembly.**
 
-Zenku boots on BIOS PCs, runs a higher-half kernel with 4-level paging, and
-provides a small Unix environment with an ext2 root filesystem, processes,
-pipes, an interactive shell, and core utilities. The kernel codename is
-**Thunder**.
+Zenku boots on BIOS and UEFI PCs, runs a higher-half kernel with 4-level
+paging, and provides a small Unix environment with an ext2 root filesystem,
+processes, pipes, an interactive shell, and core utilities. The kernel
+codename is **Thunder**.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Architecture](https://img.shields.io/badge/arch-x86__64-lightgrey.svg)](#)
-[![Firmware](https://img.shields.io/badge/firmware-BIOS-blue.svg)](#)
+[![Firmware](https://img.shields.io/badge/firmware-BIOS%20%7C%20UEFI-blue.svg)](#)
 [![Status](https://img.shields.io/badge/status-active%20development-orange.svg)](#)
 
 ![Zenku running fetch, the shell, a pipeline, and ps](docs/screenshots/hero.png)
@@ -24,12 +24,18 @@ boundary, and every subsystem is exercised by automated QEMU tests.
 
 There is no GRUB, Limine, Multiboot, or borrowed kernel. The boot chain,
 kernel, VFS, scheduler, shell, and core utilities are all part of this
-repository. The result boots from a single `build/os.iso` image.
+repository. The result boots from a single `build/os.iso` image on either
+BIOS or UEFI firmware.
 
 ## Features
 
 - **Custom BIOS boot chain** — El Torito stage1, E820/VBE/ISO9660 stage2, and
   a 64-bit stage3 loader that mounts ext2 and loads the kernel.
+- **Native UEFI boot path** — a freestanding `BOOTX64.EFI` built with
+  `clang`/`lld-link`, using GOP, the firmware memory map, and
+  `SimpleFileSystem` to load the same ext2 root filesystem and kernel. Both
+  firmware paths share the `boot_info` ABI and dual El Torito entries in one
+  ISO.
 - **Higher-half kernel** — linked at `0xFFFFFFFF80000000`, 4-level paging,
   4 GiB direct map, 16 MiB kernel heap, and a bitmap physical frame allocator.
 - **Graphical desktop** — a framebuffer terminal window with ANSI color, a
@@ -48,7 +54,8 @@ repository. The result boots from a single `build/os.iso` image.
   with multi-stage pipelines and `<`/`>` redirection, plus `ls`, `cat`, `wc`,
   `head`, `pwd`, `ps`, `sleep`, `kill`, `clear`, `uname`, and `echo`.
 - **Automated verification** — serial/PS2/QEMU integration tests for the boot
-  chain, memory, filesystem, syscalls, scheduler, shell, and fault paths.
+  chain, memory, filesystem, syscalls, scheduler, shell, fault paths, and a
+  real OVMF boot through the UEFI loader.
 
 ## Screenshots
 
@@ -59,16 +66,17 @@ repository. The result boots from a single `build/os.iso` image.
 ## Architecture
 
 ```
-BIOS / SeaBIOS
-  └─ stage1        El Torito boot image, real-mode loader
-      └─ stage2    E820, VBE, ISO9660, loads stage3 and rootfs
-          └─ stage3  long mode, ext2, ELF64, page tables
-              └─ Thunder kernel
-                  ├─ memory: PMM, VMM, heap
-                  ├─ storage: ext2, VFS, devfs, pipes
-                  ├─ execution: ELF loader, syscalls, user copies
-                  ├─ processes: scheduler, COW fork, exec, wait
-                  └─ desktop: framebuffer, terminal, RTC, compositor
+BIOS / SeaBIOS                            UEFI / OVMF
+  └─ stage1  El Torito                      └─ BOOTX64.EFI  El Torito FAT
+      └─ stage2  E820, VBE, ISO9660             └─ GOP, memory map, SimpleFileSystem
+          └─ stage3  ext2, ELF64                    └─ ext2, ELF64, page tables
+              └──────────────────┬───────────────────────┘
+                           Thunder kernel
+                             ├─ memory: PMM, VMM, heap
+                             ├─ storage: ext2, VFS, devfs, pipes
+                             ├─ execution: ELF loader, syscalls, user copies
+                             ├─ processes: scheduler, COW fork, exec, wait
+                             └─ desktop: framebuffer, terminal, RTC, compositor
 ```
 
 | Region | Virtual address | Purpose |
@@ -90,9 +98,12 @@ A Linux host with a C compiler and binutils, plus:
 | Tool | Purpose |
 |---|---|
 | `nasm` | Bootloader and kernel assembly |
+| `clang` / `lld-link` | UEFI loader (`BOOTX64.EFI`) |
 | `xorriso` | ISO image creation |
 | `mke2fs` / `e2fsprogs` | Root filesystem image |
+| `mtools` / `dosfstools` | EFI FAT boot image |
 | `qemu-system-x86_64` | Emulation and integration tests |
+| `OVMF` | UEFI firmware for `make test-uefi` |
 | `python3` | QEMU probe and image inspection scripts |
 | `make`, `bash`, coreutils | Build and test scripts |
 
@@ -126,6 +137,7 @@ make test-fs      # ext2, VFS, and devfs
 make test-user    # ring-3 entry, syscalls, brk/mmap, and user copies
 make test-proc    # fork, exec, wait, pipes, preemption, COW stress
 make test-sh      # shell builtins, coreutils, and pipelines
+make test-uefi    # OVMF boots BOOTX64.EFI into the same kernel and userland
 make check        # fast C/assembly/shell/Python syntax checks
 make check-link   # syntax checks plus stage3 and kernel link checks
 make layout       # validate the boot image layout
@@ -167,16 +179,17 @@ live uptime, CMOS clock, task count, and memory use.
 ## Repository layout
 
 ```
-boot/       stage1, stage2, and stage3 boot chain
+boot/       stage1, stage2, stage3, and the UEFI loader
 kernel/     higher-half kernel: arch, memory, filesystem, scheduler, syscalls
 drivers/    PIC, PIT, PS/2, mouse, serial, and RTC drivers
-fs/         shared ext2 implementation used by stage3 and the kernel
+fs/         shared ext2 implementation used by every boot path and the kernel
 libc/       freestanding C library, ABI header, and standard headers
 user/       crt0, init, shell, and coreutils
 docs/       plan, boot protocol, and screenshots
 linker/     kernel, stage3, and user linker scripts
 scripts/    build, image, rootfs, and test tooling
 tests/      host and QEMU integration test sources
+third_party/ vendored licenses and provenance notes
 ```
 
 ## Documentation

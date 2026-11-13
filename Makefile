@@ -27,6 +27,23 @@ KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
                 kernel/arch/x86_64/isr.asm
 KERNEL_LD    := linker/kernel.ld
 
+UEFI_CC     ?= clang
+UEFI_LD     ?= lld-link
+UEFI_MKFS   ?= mkfs.fat
+UEFI_MMD    ?= mmd
+UEFI_MCOPY  ?= mcopy
+
+UEFI_CFLAGS := --target=x86_64-pc-win32 -std=gnu11 -O2 -g \
+               -ffreestanding -fno-stack-protector -mno-stack-arg-probe \
+               -fno-builtin -mno-sse -mno-mmx -mno-80387 -mno-avx \
+               -Wall -Wextra -Werror=return-type -Iinclude -Ifs -Iboot/uefi
+
+UEFI_CSRCS := boot/uefi/main.c boot/uefi/font8x16.c fs/ext2.c \
+              lib/string.c lib/kio.c
+UEFI_OBJS  := $(patsubst %.c,$(BUILD)/uefi/obj/%.o,$(UEFI_CSRCS))
+UEFI_EFI   := $(BUILD)/uefi/BOOTX64.EFI
+EFI_IMAGE  := $(BUILD)/efi.img
+
 STAGE2_BIN      := $(BUILD)/boot/stage2.bin
 STAGE2_TEST     := $(BUILD)/test/stage2.bin
 STAGE3_ELF      := $(BUILD)/stage3/stage3.elf
@@ -65,7 +82,7 @@ KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
 KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
                     $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
 
-.PHONY: all iso run debug test test-input test-serial test-fs test-user test-proc test-sh check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs
+.PHONY: all iso run debug test test-input test-serial test-fs test-user test-proc test-sh test-uefi check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs uefi
 
 all: iso
 
@@ -118,6 +135,23 @@ $(STAGE3_BIN): $(STAGE3_ELF)
 		echo "error: stage3.bin is $$size bytes (limit $$limit)" >&2; \
 		exit 1; \
 	fi
+
+# ---------------------------------------------------------------------------
+# UEFI: PE32+ application loaded by firmware, uses the same kernel ABI
+# ---------------------------------------------------------------------------
+uefi: $(UEFI_EFI)
+
+$(BUILD)/uefi/obj/%.o: %.c | $(BUILD)/dirs
+	@mkdir -p $(dir $@)
+	$(UEFI_CC) $(UEFI_CFLAGS) -c -o $@ $<
+
+$(UEFI_EFI): $(UEFI_OBJS)
+	@mkdir -p $(dir $@)
+	$(UEFI_LD) /nologo /subsystem:efi_application /entry:efi_main \
+		/nodefaultlib /out:$@ $(UEFI_OBJS)
+
+$(EFI_IMAGE): $(UEFI_EFI) $(ROOTFS) scripts/mkefi.sh | $(BUILD)/dirs
+	scripts/mkefi.sh $(UEFI_EFI) $(ROOTFS) $@
 
 # ---------------------------------------------------------------------------
 # Kernel: higher half at 0xFFFFFFFF80000000, LMA 0x00200000
@@ -280,7 +314,7 @@ $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
 	cp $(USER_HEAD_ELF) $(USER_BIN_DIR)/head
 	cp $(USER_CLEAR_ELF) $(USER_BIN_DIR)/clear
 	cp $(USER_PWD_ELF) $(USER_BIN_DIR)/pwd
-	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 32 $(USER_INIT_ELF) $(USER_BIN_DIR)
+	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 16 $(USER_INIT_ELF) $(USER_BIN_DIR)
 
 $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
 	@mkdir -p $(dir $@)
@@ -291,8 +325,8 @@ $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
 # ---------------------------------------------------------------------------
 iso: $(ISO)
 
-$(ISO): $(BOOT_IMAGE) $(STAGE3_BIN) $(ROOTFS) scripts/mkiso.sh
-	scripts/mkiso.sh $(BOOT_IMAGE) $(ISO) $(STAGE3_BIN) $(ROOTFS)
+$(ISO): $(BOOT_IMAGE) $(STAGE3_BIN) $(ROOTFS) $(EFI_IMAGE) scripts/mkiso.sh
+	scripts/mkiso.sh $(BOOT_IMAGE) $(ISO) $(STAGE3_BIN) $(ROOTFS) $(EFI_IMAGE)
 
 $(TEST_ISO): $(TEST_IMAGE) $(STAGE3_BIN) $(ROOTFS_TEST) scripts/mkiso.sh
 	scripts/mkiso.sh $(TEST_IMAGE) $(TEST_ISO) $(STAGE3_BIN) $(ROOTFS_TEST)
@@ -326,6 +360,9 @@ test-proc: $(ISO)
 
 test-sh: $(ISO)
 	QEMU=$(QEMU) scripts/run-sh-test.sh $(ISO)
+
+test-uefi: $(ISO)
+	QEMU=$(QEMU) scripts/run-uefi-test.sh $(ISO)
 
 check:
 	scripts/syntax-check.sh
