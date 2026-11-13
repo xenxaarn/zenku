@@ -16,11 +16,15 @@
 #define S_ISCHR(m) (((m) & S_IFMT) == S_IFCHR)
 #define S_ISFIFO(m) (((m) & S_IFMT) == S_IFIFO)
 
-/* open(2) flags. Only the access mode is implemented for now. */
+/* open(2) flags. */
 #define O_RDONLY  0x0000
 #define O_WRONLY  0x0001
 #define O_RDWR    0x0002
 #define O_ACCMODE 0x0003
+#define O_CREAT   0x0040
+#define O_EXCL    0x0080
+#define O_TRUNC   0x0200
+#define O_APPEND  0x0400
 
 /* lseek(2) whence values. */
 #define SEEK_SET 0
@@ -74,6 +78,18 @@ void vfs_fdtable_destroy(int id);
 void vfs_fdtable_select(int id);
 
 int vfs_stat(const char *path, struct vfs_stat *out);
+
+/* Mount a writable (or read-only fallback) ext2 volume at /data. */
+int vfs_mount_data(struct ext2_fs *fs, bool writable);
+
+/* Additive write operations. They return -EROFS unless the path is on a
+ * writable mount. */
+int vfs_mkdir(const char *path, uint16_t mode);
+int vfs_rmdir(const char *path);
+int vfs_unlink(const char *path);
+int vfs_truncate(const char *path, uint64_t size);
+int fd_fsync(int fd);
+int vfs_sync(void);
 
 /* Resolve a path against the active process's current directory. */
 int vfs_resolve(const char *path, char *out, size_t cap);

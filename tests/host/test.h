@@ -29,5 +29,6 @@ extern int g_failures;
 
 void test_string(void);
 void test_ext2(const char *image_dir);
+void test_ext2_write(const char *image_dir);
 
 #endif /* ZENKU_HOST_TEST_H */

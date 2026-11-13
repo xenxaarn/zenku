@@ -12,6 +12,7 @@ int main(int argc, char **argv)
 
     test_string();
     test_ext2(image_dir);
+    test_ext2_write(image_dir);
 
     printf("host tests: %d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

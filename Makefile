@@ -12,15 +12,17 @@ STAGE3_ASMS  := boot/stage3/entry.asm
 STAGE3_LD    := linker/stage3.ld
 
 KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
-                kernel/console.c kernel/desktop.c kernel/tty.c \
+                kernel/console.c kernel/desktop.c kernel/tty.c kernel/disk.c \
                 kernel/arch/x86_64/gdt.c kernel/arch/x86_64/idt.c \
                 kernel/arch/x86_64/irq.c kernel/arch/x86_64/cpu.c \
                 kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/heap.c \
                 kernel/mm/usercopy.c \
                 kernel/fs/ramdisk.c kernel/fs/vfs.c kernel/fs/devfs.c kernel/fs/pipe.c fs/ext2.c \
+                fs/ext2_write.c fs/partition.c \
                 kernel/exec/loader.c kernel/sched/process.c kernel/syscall/syscall.c kernel/idle.c \
                 drivers/pic.c drivers/pit.c drivers/ps2.c drivers/mouse.c drivers/serial.c \
-                drivers/time/rtc.c drivers/acpi.c \
+                drivers/time/rtc.c drivers/acpi.c drivers/pci.c drivers/ahci.c \
+                drivers/pata.c \
                 lib/string.c lib/kio.c
 KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
                 kernel/arch/x86_64/gdt_flush.asm \
@@ -68,6 +70,10 @@ USER_HEAD_ELF   := $(BUILD)/user/head.elf
 USER_CLEAR_ELF  := $(BUILD)/user/clear.elf
 USER_PWD_ELF    := $(BUILD)/user/pwd.elf
 USER_POWEROFF_ELF := $(BUILD)/user/poweroff.elf
+USER_MKDIR_ELF  := $(BUILD)/user/mkdir.elf
+USER_RM_ELF     := $(BUILD)/user/rm.elf
+USER_TOUCH_ELF  := $(BUILD)/user/touch.elf
+USER_SYNC_ELF   := $(BUILD)/user/sync.elf
 USER_BIN_DIR    := $(BUILD)/user/bin
 
 USER_LIBC_SRCS  := libc/src/string.c libc/src/stdlib.c libc/src/stdio.c \
@@ -85,7 +91,7 @@ KERNEL_OBJS := $(patsubst %.c,$(BUILD)/kernel/obj/%.o,$(KERNEL_CSRCS)) \
 KERNEL_TEST_OBJS := $(patsubst %.c,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_CSRCS)) \
                     $(patsubst %.asm,$(BUILD)/kernel-test/obj/%.o,$(KERNEL_ASMS))
 
-.PHONY: all iso run debug test test-input test-serial test-fs test-user test-proc test-sh test-uefi test-host check check-link test-faults fault-test clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs uefi
+.PHONY: all iso run debug test test-input test-serial test-fs test-user test-proc test-sh test-uefi test-host check check-link test-faults fault-test test-disk test-disk-ahci test-disk-pata test-disk-gpt test-disk-faults clean distclean doctor size layout layout-test help boot toolchain stage3 kernel rootfs uefi
 
 all: iso
 
@@ -304,11 +310,32 @@ $(USER_POWEROFF_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreu
 	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
 		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/poweroff.o $(USER_LIBC_OBJS)
 
+$(USER_MKDIR_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/mkdir.o user/user.ld $(USER_LIBC_OBJS)
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/mkdir.o $(USER_LIBC_OBJS)
+
+$(USER_RM_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/rm.o user/user.ld $(USER_LIBC_OBJS)
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/rm.o $(USER_LIBC_OBJS)
+
+$(USER_TOUCH_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/touch.o user/user.ld $(USER_LIBC_OBJS)
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/touch.o $(USER_LIBC_OBJS)
+
+$(USER_SYNC_ELF): $(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/sync.o user/user.ld $(USER_LIBC_OBJS)
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -nostdlib -z max-page-size=4096 -T user/user.ld -o $@ \
+		$(BUILD)/user/obj/user/crt0.o $(BUILD)/user/obj/user/coreutils/sync.o $(USER_LIBC_OBJS)
+
 $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
            $(USER_CAT_ELF) $(USER_UNAME_ELF) $(USER_LS_ELF) $(USER_WC_ELF) \
            $(USER_PS_ELF) $(USER_SLEEP_ELF) $(USER_KILL_ELF) \
            $(USER_HEAD_ELF) $(USER_CLEAR_ELF) $(USER_PWD_ELF) \
-           $(USER_POWEROFF_ELF) \
+           $(USER_POWEROFF_ELF) $(USER_MKDIR_ELF) $(USER_RM_ELF) \
+           $(USER_TOUCH_ELF) $(USER_SYNC_ELF) \
            scripts/mkrootfs.sh | $(BUILD)/dirs
 	@mkdir -p $(USER_BIN_DIR)
 	cp $(USER_ECHO_ELF) $(USER_BIN_DIR)/echo
@@ -324,6 +351,10 @@ $(ROOTFS): $(KERNEL_ELF) $(USER_INIT_ELF) $(USER_ECHO_ELF) $(USER_SH_ELF) \
 	cp $(USER_CLEAR_ELF) $(USER_BIN_DIR)/clear
 	cp $(USER_PWD_ELF) $(USER_BIN_DIR)/pwd
 	cp $(USER_POWEROFF_ELF) $(USER_BIN_DIR)/poweroff
+	cp $(USER_MKDIR_ELF) $(USER_BIN_DIR)/mkdir
+	cp $(USER_RM_ELF) $(USER_BIN_DIR)/rm
+	cp $(USER_TOUCH_ELF) $(USER_BIN_DIR)/touch
+	cp $(USER_SYNC_ELF) $(USER_BIN_DIR)/sync
 	scripts/mkrootfs.sh $(KERNEL_ELF) $@ 16 $(USER_INIT_ELF) $(USER_BIN_DIR)
 
 $(ROOTFS_TEST): $(KERNEL_TEST_ELF) scripts/mkrootfs.sh | $(BUILD)/dirs
@@ -373,6 +404,27 @@ test-sh: $(ISO)
 
 test-uefi: $(ISO)
 	QEMU=$(QEMU) scripts/run-uefi-test.sh $(ISO)
+
+# Storage persistence and failure paths. Each target boots the live ISO with
+# a prepared data disk attached.
+test-disk-ahci: $(ISO)
+	scripts/run-disk-test.sh $(ISO) ahci
+
+test-disk-pata: $(ISO)
+	scripts/run-disk-test.sh $(ISO) pata
+
+test-disk-gpt: $(ISO)
+	scripts/run-disk-test.sh $(ISO) gpt
+
+test-disk-faults: $(ISO)
+	scripts/run-disk-test.sh $(ISO) unlabeled
+	scripts/run-disk-test.sh $(ISO) badmbr
+	scripts/run-disk-test.sh $(ISO) badgpt
+	scripts/run-disk-test.sh $(ISO) recover
+	scripts/run-disk-test.sh $(ISO) full
+	scripts/run-disk-test.sh $(ISO) nodisk
+
+test-disk: test-disk-ahci test-disk-pata test-disk-gpt test-disk-faults
 
 # Native unit tests for code shared with the kernel (string/mem, ext2).
 test-host:

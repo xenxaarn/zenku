@@ -17,6 +17,10 @@ typedef long intptr_t;
 #define O_WRONLY 0x0001
 #define O_RDWR   0x0002
 #define O_ACCMODE 0x0003
+#define O_CREAT  0x0040
+#define O_EXCL   0x0080
+#define O_TRUNC  0x0200
+#define O_APPEND 0x0400
 
 #define SEEK_SET 0
 #define SEEK_CUR 1
@@ -61,6 +65,12 @@ typedef long intptr_t;
 #define SYS_getcwd 84
 #define SYS_getppid 110
 #define SYS_poweroff 169
+#define SYS_mkdir    170
+#define SYS_rmdir    171
+#define SYS_unlink   172
+#define SYS_truncate 173
+#define SYS_fsync    174
+#define SYS_sync     175
 
 #define ZP_FREE   0
 #define ZP_READY  1
@@ -263,6 +273,36 @@ static inline long sys_getpid(void)
 static inline long sys_poweroff(void)
 {
     return syscall1(SYS_poweroff, 0);
+}
+
+static inline long sys_mkdir(const char *path, unsigned int mode)
+{
+    return syscall3(SYS_mkdir, (long)path, (long)mode, 0);
+}
+
+static inline long sys_rmdir(const char *path)
+{
+    return syscall1(SYS_rmdir, (long)path);
+}
+
+static inline long sys_unlink(const char *path)
+{
+    return syscall1(SYS_unlink, (long)path);
+}
+
+static inline long sys_truncate(const char *path, unsigned long length)
+{
+    return syscall3(SYS_truncate, (long)path, (long)length, 0);
+}
+
+static inline long sys_fsync(int fd)
+{
+    return syscall1(SYS_fsync, fd);
+}
+
+static inline long sys_sync(void)
+{
+    return syscall1(SYS_sync, 0);
 }
 
 static inline long sys_getppid(void)

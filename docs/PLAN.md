@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 8 complete — `v0.1.0` (hardened BIOS/UEFI boot, userland, desktop)
+**Status:** Phase 9 complete — `v0.2.0` (persistent storage: AHCI/PATA, writable ext2 `/data`)
 **Repository:** self-contained; all sources, build scripts, and documentation live here.
 **Plan file:** this document is the canonical project plan.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and UEFI (OVMF)
@@ -592,7 +592,8 @@ zenku/
 | `make run` | QEMU graphical boot |
 | `make debug` | QEMU `-s -S` + GDB script |
 | `make test` | headless boot + integration tests |
-| `make test-host` | native string/mem and ext2 unit tests |
+| `make test-disk` | storage persistence and failure-path boots |
+| `make test-host` | native string/mem, ext2, and writer unit tests |
 | `make size` | size report per component |
 | `make layout` | asserts linker symbols, stage sizes, no overlaps |
 | `make clean` / `distclean` | remove `build/` / also generated toolchain artifacts |
@@ -610,8 +611,9 @@ mke2fs -q -t ext2 -F -b 1024 -I 128 -m 0 \
 ```
 
 `build/rootfs/` is populated from `user/` outputs plus `/etc/motd`,
-`/kernel`, and directory skeleton. `mke2fs -d` requires no root
-privileges; verified e2fsprogs 1.47.4 is installed.
+`/kernel`, and the directory skeleton, including an empty `/data` mount
+point. `mke2fs -d` requires no root privileges; verified e2fsprogs 1.47.4 is
+installed.
 
 ### 5.5 ISO assembly
 
@@ -847,6 +849,38 @@ by a bad usercopy test; both BIOS and UEFI ISO boots work; docs match behavior.
 **Met:** 208 host checks pass, the usercopy tests reject kernel pointers,
 writes to user text, and writable-executable mappings, and both firmware paths
 reach the same kernel and userland.
+
+---
+
+### Phase 9 — Persistent storage (≈3 sessions) — COMPLETE
+
+* [x] PCI enumeration and a BAR helper, followed by an AHCI driver with port
+  reset/start, IDENTIFY, LBA48 DMA reads and writes, and FLUSH CACHE EXT.
+* [x] A legacy PATA driver covering primary/secondary master/slave, LBA28 and
+  LBA48 PIO reads and writes, and cache flush.
+* [x] MBR and GPT partition parsing with CRC32 validation and a whole-disk
+  fallback for unpartitioned media.
+* [x] A kernel-only ext2 writer (`fs/ext2_write.c`) for create, write, append,
+  truncate, unlink, mkdir, and rmdir, including single- and double-indirect
+  blocks and directory growth. The shared reader stays allocation-free.
+* [x] A VFS mount table with longest-prefix routing. `/` remains read-only;
+  a volume labeled `ZENKU_DATA` mounts read-write at `/data`. Unlabeled ext2
+  volumes mount read-only, and the kernel never auto-formats.
+* [x] Additive syscalls 170–175 (`mkdir`, `rmdir`, `unlink`, `truncate`,
+  `fsync`, `sync`) and matching libc wrappers; `O_CREAT`, `O_EXCL`,
+  `O_TRUNC`, and `O_APPEND` in `open`.
+* [x] Coreutils `mkdir`, `rm`, `touch`, and `sync`; shell `>` and `>>`
+  redirection.
+* [x] Host writer tests (496 checks) plus `e2fsck -fn`, and QEMU persistence
+  tests for AHCI, PATA, and GPT, with failure paths for unlabeled, corrupt
+  MBR/GPT, recovery-pending, full, and missing disks.
+
+**Accept:** `make test-host`, `make test-disk-ahci`, `make test-disk-pata`,
+and `make test-disk-faults` pass; a file written under `/data` survives a
+reboot; the read-only root and both firmware boot paths are unchanged.
+**Met:** two-boot QEMU tests pass on AHCI, PATA, and GPT; corrupted and
+recovery-pending volumes are rejected or mounted read-only; `make check`,
+`make test`, `make test-uefi`, `make test-fs`, and `make test-sh` stay green.
 
 ---
 

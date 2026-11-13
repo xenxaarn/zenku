@@ -1,6 +1,7 @@
 #include <devfs.h>
 #include <errno.h>
 #include <ext2.h>
+#include <ext2_write.h>
 #include <kio.h>
 #include <pipe.h>
 #include <ramdisk.h>
@@ -13,6 +14,15 @@
 #define DEVFS_PREFIX     "/dev/"
 #define DEVFS_PREFIX_LEN 5
 
+#define VFS_MAX_MOUNTS 4
+
+struct mount {
+    bool used;
+    bool writable;
+    char path[VFS_NAME_MAX];
+    struct ext2_fs *fs;
+};
+
 enum fd_kind {
     FD_FREE = 0,
     FD_EXT2,
@@ -22,11 +32,13 @@ enum fd_kind {
 
 struct fd_slot {
     uint8_t kind;
-    uint8_t flags;
+    uint32_t flags;
     uint32_t ino;
     const struct devfs_ops *dev;
     struct pipe *pipe;
     bool pipe_write_end;
+    bool writable;
+    struct ext2_fs *fs;
     uint64_t offset;
 };
 
@@ -37,6 +49,7 @@ struct fd_table {
 
 static struct ramdisk g_ramdisk;
 static struct ext2_fs g_fs;
+static struct mount g_mounts[VFS_MAX_MOUNTS];
 static struct fd_table g_fd_tables[VFS_MAX_FD_TABLES];
 static bool g_fd_table_used[VFS_MAX_FD_TABLES];
 static struct fd_slot *g_fds;
@@ -75,21 +88,76 @@ static bool path_touches_dev(const char *path)
            strncmp(path, DEVFS_PREFIX, DEVFS_PREFIX_LEN) == 0;
 }
 
-static int stat_ext2(const char *path, struct vfs_stat *out)
+/*
+ * Find the mount that owns `path` using longest-prefix matching. The
+ * filesystem-relative path is written to `rel` (always starting with '/').
+ */
+static struct mount *mount_for_path(const char *path, char *rel, size_t cap)
+{
+    struct mount *best = NULL;
+    size_t best_len = 0;
+
+    for (int i = 0; i < VFS_MAX_MOUNTS; i++) {
+        struct mount *m = &g_mounts[i];
+        size_t len;
+
+        if (!m->used) {
+            continue;
+        }
+        len = strlen(m->path);
+        if (len < best_len) {
+            continue;
+        }
+        if (len == 1 && m->path[0] == '/') {
+            if (path[0] == '/') {
+                best = m;
+                best_len = len;
+            }
+            continue;
+        }
+        if (strncmp(path, m->path, len) != 0) {
+            continue;
+        }
+        if (path[len] != '\0' && path[len] != '/') {
+            continue;
+        }
+        best = m;
+        best_len = len;
+    }
+
+    if (!best) {
+        return NULL;
+    }
+    {
+        const char *sub = (best_len == 1) ? path : path + best_len;
+
+        if (*sub == '\0') {
+            sub = "/";
+        }
+        if (strlen(sub) >= cap) {
+            return NULL;
+        }
+        strcpy(rel, sub);
+    }
+    return best;
+}
+
+static int stat_ext2(struct ext2_fs *fs, const char *path,
+                     struct vfs_stat *out)
 {
     struct ext2_inode inode;
     uint32_t ino;
 
-    if (ext2_lookup(&g_fs, path, &ino) != 0) {
+    if (ext2_lookup(fs, path, &ino) != 0) {
         return -ENOENT;
     }
-    if (ext2_read_inode(&g_fs, ino, &inode) != 0) {
+    if (ext2_read_inode(fs, ino, &inode) != 0) {
         return -EIO;
     }
 
     out->ino = ino;
     out->mode = inode.mode;
-    out->size = ext2_inode_size(&g_fs, &inode);
+    out->size = ext2_inode_size(fs, &inode);
     out->links = inode.links_count;
     return 0;
 }
@@ -113,12 +181,17 @@ int vfs_init(uint64_t initrd_phys, uint64_t initrd_size)
 
     memset(&g_fd_tables[0], 0, sizeof(g_fd_tables[0]));
     memset(g_fd_table_used, 0, sizeof(g_fd_table_used));
+    memset(g_mounts, 0, sizeof(g_mounts));
     g_fd_table_used[0] = true;
     g_active_table = 0;
     g_fds = g_fd_tables[0].slots;
     g_fd_tables[0].cwd[0] = '/';
     g_fd_tables[0].cwd[1] = '\0';
     g_cwd = g_fd_tables[0].cwd;
+    g_mounts[0].used = true;
+    g_mounts[0].writable = false;
+    g_mounts[0].fs = &g_fs;
+    strcpy(g_mounts[0].path, "/");
     g_ready = true;
     kprintf("vfs: ext2 mounted, %u KiB blocks, %u inodes, %u groups\n",
             g_fs.block_size / 1024, g_fs.inodes_count, g_fs.group_count);
@@ -129,6 +202,29 @@ int vfs_init(uint64_t initrd_phys, uint64_t initrd_size)
 bool vfs_ready(void)
 {
     return g_ready;
+}
+
+int vfs_mount_data(struct ext2_fs *fs, bool writable)
+{
+    int slot = -1;
+
+    if (!g_ready || !fs) {
+        return -ENODEV;
+    }
+    for (int i = 0; i < VFS_MAX_MOUNTS; i++) {
+        if (!g_mounts[i].used) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot < 0) {
+        return -ENFILE;
+    }
+    g_mounts[slot].used = true;
+    g_mounts[slot].writable = writable;
+    g_mounts[slot].fs = fs;
+    strcpy(g_mounts[slot].path, "/data");
+    return 0;
 }
 
 /* Normalize an absolute or relative path into an absolute path in `out`.
@@ -238,11 +334,20 @@ int vfs_stat(const char *path, struct vfs_stat *out)
         return 0;
     }
 
-    return stat_ext2(path, out);
+    {
+        char rel[VFS_NAME_MAX];
+        struct mount *m = mount_for_path(path, rel, sizeof(rel));
+
+        if (!m) {
+            return -ENOENT;
+        }
+        return stat_ext2(m->fs, rel, out);
+    }
 }
 
-static struct fd_slot *fd_alloc(int flags, const struct vfs_stat *st,
-                                const struct devfs_ops *dev)
+static struct fd_slot *fd_alloc(uint32_t flags, const struct vfs_stat *st,
+                                const struct devfs_ops *dev,
+                                struct ext2_fs *fs, bool writable)
 {
     for (int i = 0; i < VFS_MAX_FDS; i++) {
         struct fd_slot *slot = &g_fds[i];
@@ -251,12 +356,14 @@ static struct fd_slot *fd_alloc(int flags, const struct vfs_stat *st,
             continue;
         }
 
-        slot->flags = (uint8_t)flags;
+        slot->flags = flags;
         slot->offset = 0;
         slot->ino = st->ino;
         slot->dev = dev;
         slot->pipe = NULL;
         slot->pipe_write_end = false;
+        slot->writable = writable;
+        slot->fs = fs;
         slot->kind = dev ? FD_DEV : FD_EXT2;
         return slot;
     }
@@ -266,8 +373,10 @@ static struct fd_slot *fd_alloc(int flags, const struct vfs_stat *st,
 int vfs_open(const char *path, int flags)
 {
     char resolved[VFS_NAME_MAX];
+    char rel[VFS_NAME_MAX];
     struct vfs_stat st;
     const struct devfs_ops *dev = NULL;
+    struct mount *m;
     const char *name;
     struct fd_slot *slot;
     int access = flags & O_ACCMODE;
@@ -287,7 +396,26 @@ int vfs_open(const char *path, int flags)
 
     rc = vfs_stat(path, &st);
     if (rc < 0) {
-        return rc;
+        if (rc != -ENOENT || !(flags & O_CREAT)) {
+            return rc;
+        }
+        m = mount_for_path(path, rel, sizeof(rel));
+        if (!m) {
+            return -ENOENT;
+        }
+        if (!m->writable) {
+            return -EROFS;
+        }
+        rc = ext2_wcreate(m->fs, rel, 0644, NULL);
+        if (rc < 0) {
+            return rc;
+        }
+        rc = vfs_stat(path, &st);
+        if (rc < 0) {
+            return rc;
+        }
+    } else if ((flags & O_CREAT) && (flags & O_EXCL)) {
+        return -EEXIST;
     }
     if (S_ISDIR(st.mode)) {
         return -EISDIR;
@@ -304,16 +432,27 @@ int vfs_open(const char *path, int flags)
         if (access != O_WRONLY && !dev->read) {
             return -EINVAL;
         }
+        m = NULL;
     } else if (S_ISREG(st.mode)) {
-        /* The root filesystem is read-only for now. */
-        if (access != O_RDONLY) {
+        m = mount_for_path(path, rel, sizeof(rel));
+        if (!m) {
+            return -ENOENT;
+        }
+        if (access != O_RDONLY && !m->writable) {
             return -EROFS;
+        }
+        if ((flags & O_TRUNC) && access != O_RDONLY) {
+            rc = ext2_wtruncate(m->fs, st.ino, 0);
+            if (rc < 0) {
+                return rc;
+            }
         }
     } else {
         return -EINVAL;
     }
 
-    slot = fd_alloc(flags, &st, dev);
+    slot = fd_alloc((uint32_t)flags, &st, dev, m ? m->fs : NULL,
+                    m ? m->writable : false);
     if (!slot) {
         return -EMFILE;
     }
@@ -359,10 +498,10 @@ int64_t fd_read(int fd, void *buf, size_t len)
     } else {
         struct ext2_inode inode;
 
-        if (ext2_read_inode(&g_fs, slot->ino, &inode) != 0) {
+        if (!slot->fs || ext2_read_inode(slot->fs, slot->ino, &inode) != 0) {
             return -EIO;
         }
-        n = ext2_read(&g_fs, &inode, slot->offset, buf, len);
+        n = ext2_read(slot->fs, &inode, slot->offset, buf, len);
     }
 
     if (n > 0) {
@@ -392,7 +531,23 @@ int64_t fd_write(int fd, const void *buf, size_t len)
         }
         n = pipe_write(slot->pipe, buf, len);
     } else if (slot->kind != FD_DEV) {
-        return -EROFS;
+        struct ext2_inode inode;
+        uint64_t offset;
+
+        if (!slot->fs || !slot->writable) {
+            return -EROFS;
+        }
+        if (ext2_read_inode(slot->fs, slot->ino, &inode) != 0) {
+            return -EIO;
+        }
+        offset = (slot->flags & O_APPEND) ?
+                 ext2_inode_size(slot->fs, &inode) : slot->offset;
+        n = ext2_wwrite(slot->fs, slot->ino, offset, buf, len);
+        if (n > 0) {
+            slot->offset = offset + (uint64_t)n;
+            return n;
+        }
+        return n;
     } else {
         if (!slot->dev || !slot->dev->write) {
             return -EINVAL;
@@ -418,7 +573,7 @@ int64_t fd_lseek(int fd, int64_t offset, int whence)
     if (slot->kind != FD_EXT2) {
         return -EINVAL;
     }
-    if (ext2_read_inode(&g_fs, slot->ino, &inode) != 0) {
+    if (!slot->fs || ext2_read_inode(slot->fs, slot->ino, &inode) != 0) {
         return -EIO;
     }
 
@@ -430,7 +585,7 @@ int64_t fd_lseek(int fd, int64_t offset, int whence)
         base = (int64_t)slot->offset;
         break;
     case SEEK_END:
-        base = (int64_t)ext2_inode_size(&g_fs, &inode);
+        base = (int64_t)ext2_inode_size(slot->fs, &inode);
         break;
     default:
         return -EINVAL;
@@ -603,11 +758,11 @@ int fd_fstat(int fd, struct vfs_stat *out)
         return 0;
     }
 
-    if (ext2_read_inode(&g_fs, slot->ino, &inode) != 0) {
+    if (ext2_read_inode(slot->fs, slot->ino, &inode) != 0) {
         return -EIO;
     }
     out->mode = inode.mode;
-    out->size = ext2_inode_size(&g_fs, &inode);
+    out->size = ext2_inode_size(slot->fs, &inode);
     out->links = inode.links_count;
     return 0;
 }
@@ -710,7 +865,15 @@ int vfs_list(const char *path, vfs_dir_cb cb, void *ctx)
     }
 
     ino = st.ino;
-    return ext2_iterate(&g_fs, ino, (ext2_dir_cb)cb, ctx);
+    {
+        char rel[VFS_NAME_MAX];
+        struct mount *m = mount_for_path(path, rel, sizeof(rel));
+
+        if (!m) {
+            return -ENOENT;
+        }
+        return ext2_iterate(m->fs, ino, (ext2_dir_cb)cb, ctx);
+    }
 }
 
 struct readdir_ctx {
@@ -802,4 +965,138 @@ int vfs_getcwd(char *out, size_t cap)
     }
     memcpy(out, g_cwd, len);
     return (int)len;
+}
+
+static int writable_mount_for(const char *path, char *rel, size_t cap,
+                              struct mount **out)
+{
+    char resolved[VFS_NAME_MAX];
+    struct mount *m;
+    int rc;
+
+    rc = vfs_resolve(path, resolved, sizeof(resolved));
+    if (rc < 0) {
+        return rc;
+    }
+    m = mount_for_path(resolved, rel, cap);
+    if (!m) {
+        return -ENOENT;
+    }
+    if (!m->writable) {
+        return -EROFS;
+    }
+    *out = m;
+    return 0;
+}
+
+int vfs_mkdir(const char *path, uint16_t mode)
+{
+    char rel[VFS_NAME_MAX];
+    struct mount *m;
+    int rc;
+
+    if (!g_ready || !path) {
+        return -ENODEV;
+    }
+    rc = writable_mount_for(path, rel, sizeof(rel), &m);
+    if (rc < 0) {
+        return rc;
+    }
+    if (mode == 0) {
+        mode = 0755;
+    }
+    return ext2_wmkdir(m->fs, rel, mode);
+}
+
+int vfs_rmdir(const char *path)
+{
+    char rel[VFS_NAME_MAX];
+    struct mount *m;
+    int rc;
+
+    if (!g_ready || !path) {
+        return -ENODEV;
+    }
+    rc = writable_mount_for(path, rel, sizeof(rel), &m);
+    if (rc < 0) {
+        return rc;
+    }
+    if (strcmp(rel, "/") == 0) {
+        return -EBUSY;
+    }
+    return ext2_wrmdir(m->fs, rel);
+}
+
+int vfs_unlink(const char *path)
+{
+    char rel[VFS_NAME_MAX];
+    struct mount *m;
+    int rc;
+
+    if (!g_ready || !path) {
+        return -ENODEV;
+    }
+    rc = writable_mount_for(path, rel, sizeof(rel), &m);
+    if (rc < 0) {
+        return rc;
+    }
+    return ext2_wunlink(m->fs, rel);
+}
+
+int vfs_truncate(const char *path, uint64_t size)
+{
+    char rel[VFS_NAME_MAX];
+    struct mount *m;
+    struct vfs_stat st;
+    int rc;
+
+    if (!g_ready || !path) {
+        return -ENODEV;
+    }
+    rc = writable_mount_for(path, rel, sizeof(rel), &m);
+    if (rc < 0) {
+        return rc;
+    }
+    rc = stat_ext2(m->fs, rel, &st);
+    if (rc < 0) {
+        return rc;
+    }
+    if (S_ISDIR(st.mode)) {
+        return -EISDIR;
+    }
+    return ext2_wtruncate(m->fs, st.ino, size);
+}
+
+int fd_fsync(int fd)
+{
+    struct fd_slot *slot = fd_get(fd);
+
+    if (!slot) {
+        return -EBADF;
+    }
+    if (slot->kind != FD_EXT2) {
+        return 0;
+    }
+    if (!slot->fs || !slot->writable) {
+        return -EROFS;
+    }
+    return ext2_wsync(slot->fs);
+}
+
+int vfs_sync(void)
+{
+    int rc = 0;
+
+    for (int i = 0; i < VFS_MAX_MOUNTS; i++) {
+        int one;
+
+        if (!g_mounts[i].used || !g_mounts[i].writable) {
+            continue;
+        }
+        one = ext2_wsync(g_mounts[i].fs);
+        if (one < 0) {
+            rc = one;
+        }
+    }
+    return rc;
 }

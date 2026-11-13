@@ -13,6 +13,7 @@
 #define ENOMEM   12
 #define EFAULT   14
 #define EBUSY    16
+#define EEXIST   17
 #define ENODEV   19
 #define ENOTDIR  20
 #define EISDIR   21
@@ -25,5 +26,6 @@
 #define ERANGE   34
 #define ENAMETOOLONG 36
 #define ENOSYS   38
+#define ENOTEMPTY 39
 
 #endif /* ZENKU_ERRNO_H */

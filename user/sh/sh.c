@@ -194,14 +194,19 @@ static int apply_redirect(const char *path, int flags, int target)
     return 0;
 }
 
-static int parse_redirects(char *argv[], int *argc, char **in, char **out)
+static int parse_redirects(char *argv[], int *argc, char **in, char **out,
+                           int *append)
 {
     int kept = 0;
 
     *in = 0;
     *out = 0;
+    *append = 0;
     for (int i = 0; i < *argc; i++) {
-        if (same(argv[i], "<") || same(argv[i], ">")) {
+        int is_out = same(argv[i], ">");
+        int is_append = same(argv[i], ">>");
+
+        if (same(argv[i], "<") || is_out || is_append) {
             char *path = (i + 1 < *argc) ? argv[i + 1] : 0;
 
             if (!path) {
@@ -212,6 +217,7 @@ static int parse_redirects(char *argv[], int *argc, char **in, char **out)
                 *in = path;
             } else {
                 *out = path;
+                *append = is_append;
             }
             i++;
         } else {
@@ -224,7 +230,8 @@ static int parse_redirects(char *argv[], int *argc, char **in, char **out)
 }
 
 static void run_pipeline(char *stage_argv[][ARG_MAX], int stage_count,
-                         char *stage_in[], char *stage_out[])
+                         char *stage_in[], char *stage_out[],
+                         int stage_append[])
 {
     int pipes[PIPE_STAGES - 1][2];
     long pids[PIPE_STAGES];
@@ -260,7 +267,10 @@ static void run_pipeline(char *stage_argv[][ARG_MAX], int stage_count,
                 sys_exit(1);
             }
             if (stage_out[i] &&
-                apply_redirect(stage_out[i], O_WRONLY, 1) < 0) {
+                apply_redirect(stage_out[i],
+                               O_WRONLY | O_CREAT |
+                               (stage_append[i] ? O_APPEND : O_TRUNC),
+                               1) < 0) {
                 print("sh: cannot open ");
                 print(stage_out[i]);
                 print("\n");
@@ -298,6 +308,7 @@ int main(long argc, char **argv)
     char *args[PIPE_STAGES][ARG_MAX];
     char *redir_in[PIPE_STAGES];
     char *redir_out[PIPE_STAGES];
+    int redir_append[PIPE_STAGES];
     int counts[PIPE_STAGES];
 
     (void)argc;
@@ -322,7 +333,7 @@ int main(long argc, char **argv)
             counts[i] = split(stages[i], args[i], ARG_MAX);
             if (counts[i] == 0 ||
                 parse_redirects(args[i], &counts[i], &redir_in[i],
-                                &redir_out[i]) < 0) {
+                                &redir_out[i], &redir_append[i]) < 0) {
                 print("sh: invalid pipeline stage\n");
                 stage_count = 0;
                 break;
@@ -371,7 +382,7 @@ int main(long argc, char **argv)
             }
         }
 
-        run_pipeline(args, stage_count, redir_in, redir_out);
+        run_pipeline(args, stage_count, redir_in, redir_out, redir_append);
     }
 
     return 0;

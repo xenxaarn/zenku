@@ -36,6 +36,14 @@ jobs:
       - name: Run UEFI boot test
         run: make test-uefi
 
+      - name: Run storage persistence tests
+        run: |
+          make test-disk-ahci
+          make test-disk-pata
+
+      - name: Run storage failure-path tests
+        run: make test-disk-faults
+
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:

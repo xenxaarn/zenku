@@ -35,6 +35,14 @@
 #define SYS_getppid 110
 #define SYS_poweroff 169
 
+/* Additive Zenku calls. Existing numbers never move. */
+#define SYS_mkdir    170
+#define SYS_rmdir    171
+#define SYS_unlink   172
+#define SYS_truncate 173
+#define SYS_fsync    174
+#define SYS_sync     175
+
 void syscall_dispatch(struct regs *r);
 void syscall_init(void);
 

@@ -80,6 +80,10 @@ def main() -> int:
                     help="type this text on COM1 and capture the reply")
     ap.add_argument("--bios", default="",
                     help="firmware image to pass to QEMU (-bios), e.g. OVMF")
+    ap.add_argument("--drive", action="append", default=[],
+                    help="raw disk image to attach (repeatable)")
+    ap.add_argument("--drive-bus", choices=["ahci", "pata"], default="pata",
+                    help="controller used for --drive images")
     args = ap.parse_args()
 
     iso = os.path.abspath(args.iso)
@@ -104,6 +108,23 @@ def main() -> int:
     ]
     if args.bios:
         qemu_args[1:1] = ["-bios", args.bios]
+    if args.drive:
+        # Attached disks can win the firmware's default boot order, and the
+        # data image has no boot code. Force the CD-ROM first.
+        qemu_args += ["-boot", "order=d"]
+        if args.drive_bus == "ahci":
+            qemu_args += ["-device", "ahci,id=ahci"]
+            for i, path in enumerate(args.drive):
+                qemu_args += ["-drive",
+                              f"if=none,id=disk{i},"
+                              f"file={os.path.abspath(path)},format=raw"]
+                qemu_args += ["-device",
+                              f"ide-hd,drive=disk{i},bus=ahci.{i}"]
+        else:
+            for path in args.drive:
+                qemu_args += ["-drive",
+                              f"file={os.path.abspath(path)},format=raw,"
+                              "if=ide"]
     proc = subprocess.Popen(
         qemu_args,
         stdout=subprocess.DEVNULL,

@@ -7,6 +7,7 @@
 #include <compiler.h>
 #include <console.h>
 #include <desktop.h>
+#include <disk.h>
 #include <fb.h>
 #include <idle.h>
 #include <io.h>
@@ -156,6 +157,7 @@ void kmain(struct boot_info *bi)
         kprintf("kernel: root filesystem unavailable\n");
     } else {
         kprintf("kernel: root filesystem ready\n");
+        disk_init();
     }
 
     if (bi->flags & BOOT_FLAG_FB) {

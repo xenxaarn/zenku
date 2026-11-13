@@ -43,6 +43,7 @@ if [ -n "$BINDIR" ]; then
     done
 fi
 mkdir -p "$STAGE/etc"
+mkdir -p "$STAGE/data"
 cat > "$STAGE/README" <<'EOF'
 Zenku root filesystem.
 

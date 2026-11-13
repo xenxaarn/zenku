@@ -19,8 +19,8 @@ BIN := $(BUILD)/test_host
 CFLAGS := -std=gnu11 -O2 -g -Wall -Wextra -Werror -fno-builtin \
           -I$(ROOT)/include -I$(ROOT)/fs
 
-SRCS := test_main.c test_string.c test_ext2.c \
-        $(ROOT)/lib/string.c $(ROOT)/fs/ext2.c
+SRCS := test_main.c test_string.c test_ext2.c test_ext2_write.c \
+        $(ROOT)/lib/string.c $(ROOT)/fs/ext2.c $(ROOT)/fs/ext2_write.c
 
 .PHONY: all run clean images
 

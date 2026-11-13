@@ -200,6 +200,54 @@ static int64_t sys_getcwd(uint64_t buf, uint64_t size)
     return len;
 }
 
+static int64_t sys_mkdir(uint64_t path_ptr, uint32_t mode)
+{
+    char path[MAX_USER_PATH];
+    int rc;
+
+    rc = copy_user_string(path, path_ptr, sizeof(path));
+    if (rc < 0) {
+        return rc;
+    }
+    return vfs_mkdir(path, (uint16_t)mode);
+}
+
+static int64_t sys_rmdir(uint64_t path_ptr)
+{
+    char path[MAX_USER_PATH];
+    int rc;
+
+    rc = copy_user_string(path, path_ptr, sizeof(path));
+    if (rc < 0) {
+        return rc;
+    }
+    return vfs_rmdir(path);
+}
+
+static int64_t sys_unlink(uint64_t path_ptr)
+{
+    char path[MAX_USER_PATH];
+    int rc;
+
+    rc = copy_user_string(path, path_ptr, sizeof(path));
+    if (rc < 0) {
+        return rc;
+    }
+    return vfs_unlink(path);
+}
+
+static int64_t sys_truncate(uint64_t path_ptr, uint64_t length)
+{
+    char path[MAX_USER_PATH];
+    int rc;
+
+    rc = copy_user_string(path, path_ptr, sizeof(path));
+    if (rc < 0) {
+        return rc;
+    }
+    return vfs_truncate(path, length);
+}
+
 static int64_t sys_getpid(void)
 {
     return process_getpid();
@@ -329,6 +377,24 @@ void syscall_dispatch(struct regs *r)
         break;
     case SYS_getcwd:
         ret = sys_getcwd(r->rsi, r->rdx);
+        break;
+    case SYS_mkdir:
+        ret = sys_mkdir(r->rdi, (uint32_t)r->rsi);
+        break;
+    case SYS_rmdir:
+        ret = sys_rmdir(r->rdi);
+        break;
+    case SYS_unlink:
+        ret = sys_unlink(r->rdi);
+        break;
+    case SYS_truncate:
+        ret = sys_truncate(r->rdi, r->rsi);
+        break;
+    case SYS_fsync:
+        ret = fd_fsync((int)r->rdi);
+        break;
+    case SYS_sync:
+        ret = vfs_sync();
         break;
     case SYS_yield:
         process_yield(r);

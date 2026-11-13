@@ -5,13 +5,14 @@ assembly.**
 
 Zenku boots on BIOS and UEFI systems from a single ISO, runs a higher-half
 kernel with 4-level paging, and provides a small Unix environment: a read-only
-ext2 root filesystem, processes, pipes, an interactive shell, core utilities,
-and a graphical desktop. The kernel is codenamed **Thunder**.
+ext2 root filesystem, a persistent writable ext2 volume mounted at `/data`,
+processes, pipes, an interactive shell, core utilities, and a graphical
+desktop. The kernel is codenamed **Thunder**.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Architecture](https://img.shields.io/badge/arch-x86__64-lightgrey.svg)
 ![Firmware](https://img.shields.io/badge/firmware-BIOS%20%7C%20UEFI-blue.svg)
-![Release](https://img.shields.io/badge/release-v0.1.0-informational.svg)
+![Release](https://img.shields.io/badge/release-v0.2.0-informational.svg)
 
 ![Zenku running fetch, the shell, a pipeline, and ps](docs/screenshots/hero.png)
 
@@ -34,11 +35,11 @@ The result boots from one `build/os.iso` image on either firmware path.
 | **Kernel** | Higher-half x86_64 at `0xFFFFFFFF80000000`, 4-level paging, 4 GiB direct map, bitmap frame allocator, 16 MiB heap. |
 | **Hardening** | CPUID-gated NX, SMEP, and SMAP; W^X user mappings; validated usercopy with `stac`/`clac`; heap redzones; `SYSCALL`/`SYSRET` fast path with `int 0x80` retained. |
 | **Processes** | Per-process address spaces, COW `fork`, `execve`, blocking `wait4`, `brk`, `mmap`/`munmap`, guarded stacks, 100 Hz round-robin. |
-| **Storage** | Read-only ext2, POSIX-style VFS, devfs under `/dev`, 4 KiB pipes with `EAGAIN`, `EPIPE`, and EOF. |
-| **Userland** | Freestanding libc, shared `crt0`, `/init`, `/bin/sh` with pipelines and redirection, plus coreutils including `poweroff`. |
+| **Storage** | Read-only ext2 root plus a writable ext2 volume at `/data`, discovered through PCI/AHCI or legacy PATA, with MBR/GPT parsing, a POSIX-style VFS, devfs, and 4 KiB pipes with `EAGAIN`, `EPIPE`, and EOF. |
+| **Userland** | Freestanding libc, shared `crt0`, `/init`, `/bin/sh` with pipelines and `>`/`>>` redirection, plus coreutils including `mkdir`, `rm`, `touch`, `sync`, and `poweroff`. |
 | **Desktop** | Framebuffer terminal with ANSI color, draggable and resizable window, taskbar, RTC top bar, and a 60 Hz dirty-rect compositor. |
 | **Firmware** | ACPI RSDP/FADT discovery on both paths; S5 poweroff with FADT, 8042, and PCI reset fallbacks. |
-| **Verification** | Native string/ext2 tests plus BIOS, UEFI, fault, input, serial, filesystem, syscall, process, and shell QEMU suites. |
+| **Verification** | Native string/ext2/writer tests plus BIOS, UEFI, fault, input, serial, filesystem, storage-persistence, syscall, process, and shell QEMU suites. |
 
 ## Screenshots
 
@@ -56,7 +57,7 @@ BIOS / SeaBIOS                            UEFI / OVMF
               └──────────────────┬───────────────────────┘
                            Thunder kernel
                              ├─ memory: PMM, VMM, heap
-                             ├─ storage: ext2, VFS, devfs, pipes
+                             ├─ storage: ext2, writable /data, VFS, devfs, pipes
                              ├─ execution: ELF loader, syscalls, user copies
                              ├─ processes: scheduler, COW fork, exec, wait
                              ├─ hardening: NX, SMEP/SMAP, W^X, heap redzones
@@ -84,8 +85,9 @@ A Linux host with a C compiler and binutils, plus:
 | `nasm` | Bootloader and kernel assembly |
 | `clang` / `lld-link` | UEFI loader (`BOOTX64.EFI`) |
 | `xorriso` | ISO image creation |
-| `mke2fs` / `e2fsprogs` | Root filesystem image |
+| `mke2fs` / `e2fsprogs` | Root filesystem and data-disk images |
 | `mtools` / `dosfstools` | EFI FAT boot image |
+| `sfdisk` / `debugfs` | Storage test disks (`util-linux`, `e2fsprogs`) |
 | `qemu-system-x86_64` | Emulation and integration tests |
 | `OVMF` | UEFI firmware for `make test-uefi` |
 | `python3` | QEMU probe and image inspection scripts |
@@ -115,7 +117,8 @@ over COM1.
 ```sh
 make test       # headless BIOS boot and serial assertions
 make test-uefi  # headless UEFI boot under OVMF
-make test-host  # native string/mem and ext2 tests (no QEMU)
+make test-host  # native string, ext2 reader, and ext2 writer tests
+make test-disk  # storage persistence and failure paths
 make check      # syntax checks; make check-link adds link checks
 ```
 
@@ -133,17 +136,24 @@ make check      # syntax checks; make check-link adds link checks
 | `make test-proc` | `fork`, `exec`, `wait`, pipes, preemption, and COW stress |
 | `make test-sh` | Shell builtins, coreutils, and pipelines |
 | `make test-uefi` | OVMF boots `BOOTX64.EFI` into the same kernel and userland |
-| `make test-host` | 208 native checks over string/mem and ext2 |
+| `make test-disk-ahci` | Writes to `/data` over AHCI, reboots, and verifies persistence |
+| `make test-disk-pata` | The same persistence check over legacy PATA |
+| `make test-disk-gpt` | Persistence with a GPT data disk |
+| `make test-disk-faults` | Unlabeled, corrupt MBR/GPT, recovery-pending, full, and missing disks |
+| `make test-host` | 496 native checks over string/mem, ext2 reading, and ext2 writing |
 | `make check` | C, assembly, shell, and Python syntax checks |
 | `make check-link` | Syntax checks plus stage3 and kernel link checks |
 | `make layout` | Boot image layout and linker-symbol validation |
 
 </details>
 
-`make test-host` builds the shared `lib/string.c` and `fs/ext2.c` sources for
-the host with `-fno-builtin`, generates 1/2/4 KiB ext2 fixture images, and
-checks deep paths, large directories, indirect blocks, and corrupt-directory
-rejection. It needs no QEMU or root privileges.
+`make test-host` builds the shared `lib/string.c`, `fs/ext2.c`, and
+`fs/ext2_write.c` sources for the host with `-fno-builtin`, generates
+1/2/4 KiB ext2 fixture images, and checks deep paths, large directories,
+indirect blocks, corrupt-directory rejection, and the full writer path. The
+writer suite creates, appends, truncates, unlinks, makes and removes
+directories, crosses the single- and double-indirect boundaries, then runs
+`e2fsck -fn` over the result. It needs no QEMU or root privileges.
 
 ## Using Zenku
 
@@ -164,6 +174,12 @@ sh> cat /hello.txt
 sh> wc < /hello.txt
 sh> cat /etc/motd | head -n 1
 sh> echo hello from user space | wc
+sh> mkdir /data/notes
+sh> echo first entry > /data/notes/log.txt
+sh> echo second entry >> /data/notes/log.txt
+sh> touch /data/notes/marker
+sh> rm /data/notes/marker
+sh> sync
 sh> sleep 1
 sh> ps
 sh> poweroff
@@ -173,9 +189,25 @@ sh> poweroff
 firmware does not cut power, the kernel falls back to the FADT reset register,
 the 8042 controller, the PCI reset control register, and finally a halt.
 
-The root filesystem is intentionally read-only. Output redirection works for
-writable devices such as `/dev/null`, while writes to ext2 are rejected with
-`EROFS`.
+### Persistent data volume
+
+The root filesystem stays read-only, so the live ISO can be booted from
+read-only media without modifying it. A second disk provides persistent
+storage:
+
+- The kernel probes PCI for an AHCI controller, then falls back to the legacy
+  PATA channels, and parses MBR or GPT partition tables.
+- An ext2 volume whose label is exactly `ZENKU_DATA` is mounted at `/data`
+  read-write, provided it needs no journal recovery and has no unsupported
+  read-only feature.
+- An unlabeled ext2 volume is still mounted at `/data`, but read-only. Zenku
+  never formats a disk automatically.
+- Writes are write-through: data blocks, inode and bitmap metadata, and the
+  superblock are updated in order and followed by a device flush. There is no
+  journal, so a power loss can leave a partially updated filesystem.
+
+The shell supports `>`, `>>`, and `<` redirection; the write forms require a
+writable mount. The coreutils include `mkdir`, `rm`, `touch`, and `sync`.
 
 The desktop is mouse-driven. Drag the title bar to move the window, drag the
 bottom-right grip to resize (the scrollback reflows), click the red button to
@@ -187,14 +219,14 @@ live uptime, CMOS clock, task count, and memory use.
 ```
 boot/        BIOS stages and the UEFI application
 kernel/      higher-half kernel: arch, memory, exec, filesystem, scheduler, syscalls
-drivers/     PIC, PIT, PS/2, mouse, serial, RTC, and ACPI
-fs/          shared ext2 reader used by every boot path and the kernel
+drivers/     PIC, PIT, PS/2, mouse, serial, RTC, ACPI, PCI, AHCI, and PATA
+fs/          shared ext2 reader, kernel-only ext2 writer, and partition parser
 lib/         freestanding string and kernel I/O helpers
 libc/        userland C library and syscall ABI
 user/        crt0, init, shell, and coreutils
 include/     kernel and boot ABI headers
 linker/      kernel, stage3, and user linker scripts
-scripts/     build, image, rootfs, QEMU, and test tooling
+scripts/     build, image, rootfs, data-disk, QEMU, and test tooling
 tests/       host unit tests
 docs/        plan, boot protocol, and screenshots
 third_party/ vendored licenses and provenance notes
@@ -213,6 +245,7 @@ Issues and pull requests are welcome. Before submitting a change:
 make check
 make check-link
 make test-host
+make test-disk
 make test
 ```
 
