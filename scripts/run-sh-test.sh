@@ -8,7 +8,8 @@ ISO=${1:-$ROOT/build/os.iso}
 [ -f "$ISO" ] || { echo "run-sh-test: missing ISO: $ISO" >&2; exit 1; }
 
 LOG=$(mktemp "${TMPDIR:-/tmp}/zenku-sh.XXXXXX")
-trap 'rm -f "$LOG"' EXIT
+CLEAN=$(mktemp "${TMPDIR:-/tmp}/zenku-sh-clean.XXXXXX")
+trap 'rm -f "$LOG" "$CLEAN"' EXIT
 
 if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
     --wait 40 --wait-line "user: /init returned to the kernel" \
@@ -19,8 +20,10 @@ if ! python3 "$ROOT/scripts/qemu-probe.py" "$ISO" \
     exit 1
 fi
 
+tr -d '\r' < "$LOG" > "$CLEAN"
+
 check() {
-    if ! grep -q "$1" "$LOG"; then
+    if ! grep -q -- "$1" "$CLEAN"; then
         echo "FAIL: missing: $1"
         tail -60 "$LOG"
         exit 1
@@ -29,10 +32,8 @@ check() {
 
 check "sh> "
 check "shell: builtins: cd, clear, exit, help, pwd"
-check "sh> /bin"
-check "sh> /"
-check "pwd"
-check "sh> /"
+check "^/bin$"
+check "^/$"
 check "hello.txt"
 check "shell works"
 check "Zenku Thunder x86_64"

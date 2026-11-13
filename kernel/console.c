@@ -55,6 +55,8 @@ static int g_scroll_offset;
 
 static struct tty g_tty;
 
+static void tty_redraw(void);
+
 /* Input routed to a user process. Line editing is intentionally simple: the
  * echo follows the typed text at the cursor, and a completed line is queued
  * for /dev/console readers. */
@@ -206,6 +208,50 @@ void console_init(int x, int y, int width, int height, int scale)
     console_clear();
 }
 
+void console_set_origin(int x, int y)
+{
+    g_x = x;
+    g_y = y;
+}
+
+void console_repaint(void)
+{
+    console_render();
+    if (!g_user_input && g_scroll_offset == 0) {
+        tty_redraw();
+    }
+}
+
+void console_resize(int x, int y, int width, int height)
+{
+    int cols = width / g_cell_w;
+    int rows = height / g_cell_h;
+
+    g_x = x;
+    g_y = y;
+    g_cols = cols > 0 ? cols : 1;
+    g_rows = rows > 0 ? rows : 1;
+
+    if (g_col >= g_cols) {
+        g_col = g_cols - 1;
+    }
+    if (g_row >= g_rows) {
+        g_row = g_rows - 1;
+    }
+    if (g_col < 0) {
+        g_col = 0;
+    }
+    if (g_row < 0) {
+        g_row = 0;
+    }
+
+    g_tty.limit = g_cols - 8;
+    if (g_tty.limit < 16) {
+        g_tty.limit = 16;
+    }
+    console_repaint();
+}
+
 static void scroll(void)
 {
     fb_scroll_up(g_x, g_y, g_cols * g_cell_w, g_rows * g_cell_h,
@@ -314,6 +360,23 @@ static void ansi_apply(void)
     }
 }
 
+static void ansi_erase_line(void)
+{
+    if (g_col < 0) {
+        g_col = 0;
+    }
+    if (g_col >= g_cols) {
+        g_col = g_cols - 1;
+    }
+    mouse_cursor_hide();
+    fb_fill_rect(g_x + g_col * g_cell_w, g_y + g_row * g_cell_h,
+                 (g_cols - g_col) * g_cell_w, g_cell_h, COLOR_BG);
+    if ((unsigned)g_col < g_cur_len) {
+        g_cur_len = (unsigned)g_col;
+    }
+    mouse_cursor_show();
+}
+
 static bool ansi_consume(char c)
 {
     if (g_ansi_state == 0) {
@@ -333,6 +396,23 @@ static bool ansi_consume(char c)
     if (c == 'm') {
         g_ansi_params[g_ansi_len] = '\0';
         ansi_apply();
+        g_ansi_state = 0;
+        return true;
+    }
+    if (c == 'J' || c == 'K') {
+        int code = 0;
+        unsigned i = 0;
+
+        while (i < g_ansi_len && g_ansi_params[i] >= '0' &&
+               g_ansi_params[i] <= '9') {
+            code = code * 10 + (g_ansi_params[i] - '0');
+            i++;
+        }
+        if (c == 'J' && (code == 2 || code == 3)) {
+            console_clear();
+        } else if (c == 'K') {
+            ansi_erase_line();
+        }
         g_ansi_state = 0;
         return true;
     }

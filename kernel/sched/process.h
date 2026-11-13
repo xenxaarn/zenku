@@ -94,6 +94,9 @@ int process_getpid(void);
 int process_getppid(void);
 void process_print(void);
 
+/* Number of live (non-free) process slots. */
+int process_count(void);
+
 /* Copy live process records into `out`, returning the number written. */
 int process_snapshot(struct process_info *out, int max);
 

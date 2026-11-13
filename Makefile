@@ -19,6 +19,7 @@ KERNEL_CSRCS := kernel/main.c kernel/fb.c kernel/panic.c \
                 kernel/fs/ramdisk.c kernel/fs/vfs.c kernel/fs/devfs.c kernel/fs/pipe.c fs/ext2.c \
                 kernel/exec/loader.c kernel/sched/process.c kernel/syscall/syscall.c kernel/idle.c \
                 drivers/pic.c drivers/pit.c drivers/ps2.c drivers/mouse.c drivers/serial.c \
+                drivers/time/rtc.c \
                 lib/string.c lib/kio.c
 KERNEL_ASMS  := kernel/arch/x86_64/entry.asm \
                 kernel/arch/x86_64/gdt_flush.asm \

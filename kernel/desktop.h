@@ -2,14 +2,16 @@
 #define ZENKU_DESKTOP_H
 
 #include <boot_info.h>
+#include <types.h>
 
 void desktop_init(const struct boot_info *bi);
 bool desktop_ready(void);
 
-/* Repaint the taskbar clock when the second changes. */
+/* Refresh the top-bar clock and live statistics when the second changes. */
 void desktop_tick(void);
 
-/* Left click at framebuffer coordinates; focuses the terminal window. */
-void desktop_click(int x, int y, uint8_t buttons);
+/* Handle pointer state: focus, window drag/resize, close, and taskbar clicks.
+ * Returns true when the desktop was redrawn. */
+bool desktop_update(int x, int y, uint8_t buttons);
 
 #endif /* ZENKU_DESKTOP_H */

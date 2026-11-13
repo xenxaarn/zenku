@@ -173,6 +173,10 @@ void kmain(struct boot_info *bi)
     pit_wait_ticks(10);
     kprintf("kernel: timer running (%llu ticks)\n", pit_ticks());
 
+    /* Hold the boot splash briefly, then hand the framebuffer to the desktop. */
+    fb_present();
+    pit_wait_ticks(pit_frequency() / 2);
+
     desktop_init(bi);
 
 #ifdef TEST_EXIT

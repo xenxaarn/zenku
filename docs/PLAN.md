@@ -1,6 +1,6 @@
 # Zenku — 64-bit Unix-like Kernel & Custom Bootloader
 
-**Status:** Phase 5 in progress (scheduler, fork/exec/wait, interactive shell)
+**Status:** Phase 6 complete (graphical desktop, RTC clock, 60 Hz compositor)
 **Repository:** self-contained; all sources, build scripts, and documentation live here.
 **Plan file:** this document is the canonical project plan.
 **Target:** bootable `os.iso` for BIOS (SeaBIOS/real hardware) and, in the final phase, UEFI/OVMF
@@ -805,13 +805,20 @@ pointers return `-EFAULT`, writing to ext2 returns `EROFS`, and a userland
 `ps` shows init/sh/ps, Ctrl-D exits, and the system remains responsive after
 stress.
 
-### Phase 6 — Graphical desktop (≈2 sessions)
+### Phase 6 — Graphical desktop (≈2 sessions) — COMPLETE
 
-* Terminal emulator window with ANSI subset, selection/focus not required.
-* Window chrome: title, close/reopen, drag with mouse, taskbar.
-* Top bar: OS name, uptime, RTC clock, running task count, memory usage.
-* Cursor sprite, click handling, 60 Hz dirty-rect compositor, redraw on input.
-* Boot splash that transitions into the desktop console.
+* [x] Terminal emulator window with ANSI subset, selection/focus not required.
+  SGR colors, `ESC[2J` clear, `ESC[K` erase-to-end-of-line, scrollback, and
+  prompt cursor are supported.
+* [x] Window chrome: title, close/reopen, drag with mouse, taskbar.
+  The title bar drags the window, the bottom-right grip resizes it, the close
+  button hides it, and the taskbar button restores it with history intact.
+* [x] Top bar: OS name, uptime, RTC clock, running task count, memory usage.
+* [x] Cursor sprite, click handling, 60 Hz dirty-rect compositor, redraw on input.
+  `fb_present()` copies only the damaged rectangle and the idle loop limits
+  full frames to 60 Hz while bypassing the limiter for input.
+* [x] Boot splash that transitions into the desktop console.
+  The splash is presented, held briefly, and replaced by the desktop window.
 
 **Accept:** desktop is usable purely with mouse + keyboard; resizing/ANSI
 content stays correct; no tearing or cursor trails in QEMU; 60 Hz redraw keeps

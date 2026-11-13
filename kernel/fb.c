@@ -1,6 +1,8 @@
 #include <fb.h>
 #include <mm/heap.h>
 #include <string.h>
+#include <types.h>
+#include <version.h>
 
 #define PHYS_MAP_BASE 0xFFFF800000000000ull
 
@@ -28,6 +30,58 @@ static struct {
 static uint32_t *g_front;
 static uint32_t g_front_pitch;
 static bool g_dirty;
+static int g_dirty_x0;
+static int g_dirty_y0;
+static int g_dirty_x1;
+static int g_dirty_y1;
+
+static void mark_dirty(int x, int y, int w, int h)
+{
+    if (!g_fb.ready || w <= 0 || h <= 0) {
+        return;
+    }
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if (x >= (int)g_fb.width || y >= (int)g_fb.height) {
+        return;
+    }
+    if (x + w > (int)g_fb.width) {
+        w = (int)g_fb.width - x;
+    }
+    if (y + h > (int)g_fb.height) {
+        h = (int)g_fb.height - y;
+    }
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+
+    if (!g_dirty) {
+        g_dirty_x0 = x;
+        g_dirty_y0 = y;
+        g_dirty_x1 = x + w;
+        g_dirty_y1 = y + h;
+        g_dirty = true;
+        return;
+    }
+    if (x < g_dirty_x0) {
+        g_dirty_x0 = x;
+    }
+    if (y < g_dirty_y0) {
+        g_dirty_y0 = y;
+    }
+    if (x + w > g_dirty_x1) {
+        g_dirty_x1 = x + w;
+    }
+    if (y + h > g_dirty_y1) {
+        g_dirty_y1 = y + h;
+    }
+}
 
 int fb_init(const struct boot_info *bi)
 {
@@ -65,6 +119,10 @@ int fb_init(const struct boot_info *bi)
 
     g_fb.ready = true;
     g_dirty = true;
+    g_dirty_x0 = 0;
+    g_dirty_y0 = 0;
+    g_dirty_x1 = (int)g_fb.width;
+    g_dirty_y1 = (int)g_fb.height;
 
     uint64_t bytes = (uint64_t)g_fb.pitch_pixels * g_fb.height *
                      sizeof(uint32_t);
@@ -79,14 +137,24 @@ int fb_init(const struct boot_info *bi)
 
 void fb_present(void)
 {
+    int x0;
+    int y0;
+    int x1;
+    int y1;
+
     if (!g_fb.ready || !g_dirty || g_fb.addr == g_front) {
         return;
     }
 
-    for (uint32_t y = 0; y < g_fb.height; y++) {
-        memcpy(g_front + (uint64_t)y * g_front_pitch,
-               g_fb.addr + (uint64_t)y * g_fb.pitch_pixels,
-               (size_t)g_fb.width * sizeof(uint32_t));
+    x0 = g_dirty_x0;
+    y0 = g_dirty_y0;
+    x1 = g_dirty_x1;
+    y1 = g_dirty_y1;
+
+    for (int y = y0; y < y1; y++) {
+        memcpy(g_front + (uint64_t)y * g_front_pitch + x0,
+               g_fb.addr + (uint64_t)y * g_fb.pitch_pixels + x0,
+               (size_t)(x1 - x0) * sizeof(uint32_t));
     }
     g_dirty = false;
 }
@@ -132,16 +200,47 @@ void fb_pixel(int x, int y, uint32_t rgb)
         return;
     }
     g_fb.addr[(uint64_t)y * g_fb.pitch_pixels + (uint32_t)x] = pack(rgb);
-    g_dirty = true;
+    mark_dirty(x, y, 1, 1);
 }
 
 void fb_fill_rect(int x, int y, int w, int h, uint32_t rgb)
 {
+    uint32_t value;
+
+    if (!g_fb.ready || w <= 0 || h <= 0) {
+        return;
+    }
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if (x >= (int)g_fb.width || y >= (int)g_fb.height) {
+        return;
+    }
+    if (x + w > (int)g_fb.width) {
+        w = (int)g_fb.width - x;
+    }
+    if (y + h > (int)g_fb.height) {
+        h = (int)g_fb.height - y;
+    }
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+
+    value = pack(rgb);
     for (int row = 0; row < h; row++) {
+        uint32_t *dst = g_fb.addr +
+                        (uint64_t)(y + row) * g_fb.pitch_pixels + x;
+
         for (int col = 0; col < w; col++) {
-            fb_pixel(x + col, y + row, rgb);
+            dst[col] = value;
         }
     }
+    mark_dirty(x, y, w, h);
 }
 
 uint32_t fb_raw_get(int x, int y)
@@ -160,7 +259,7 @@ void fb_raw_set(int x, int y, uint32_t value)
         return;
     }
     g_fb.addr[(uint64_t)y * g_fb.pitch_pixels + (uint32_t)x] = value;
-    g_dirty = true;
+    mark_dirty(x, y, 1, 1);
 }
 
 void fb_scroll_up(int x, int y, int w, int h, int pixels, uint32_t rgb)
@@ -195,20 +294,26 @@ void fb_scroll_up(int x, int y, int w, int h, int pixels, uint32_t rgb)
 
         memmove(dst, src, (size_t)w * sizeof(uint32_t));
     }
+    mark_dirty(x, y, w, h);
     fb_fill_rect(x, y + h - pixels, w, pixels, rgb);
 }
 
 void fb_clear(uint32_t rgb)
 {
+    uint32_t value;
+
     if (!g_fb.ready) {
         return;
     }
+    value = pack(rgb);
     for (uint32_t y = 0; y < g_fb.height; y++) {
+        uint32_t *row = g_fb.addr + (uint64_t)y * g_fb.pitch_pixels;
+
         for (uint32_t x = 0; x < g_fb.width; x++) {
-            g_fb.addr[(uint64_t)y * g_fb.pitch_pixels + x] = pack(rgb);
+            row[x] = value;
         }
     }
-    g_dirty = true;
+    mark_dirty(0, 0, (int)g_fb.width, (int)g_fb.height);
 }
 
 void fb_char(char ch, int x, int y, int scale, uint32_t fg, uint32_t bg)
@@ -225,15 +330,18 @@ void fb_char(char ch, int x, int y, int scale, uint32_t fg, uint32_t bg)
 
     for (uint32_t row = 0; row < rows; row++) {
         uint8_t bits = glyph[row];
+        int col = 0;
 
-        for (int col = 0; col < 8; col++) {
-            uint32_t color = (bits & (0x80u >> col)) ? fg : bg;
+        while (col < 8) {
+            bool on = (bits & (0x80u >> col)) != 0;
+            int start = col;
 
-            if (bg == fg && !(bits & (0x80u >> col))) {
-                continue;
+            while (col < 8 && (((bits & (0x80u >> col)) != 0) == on)) {
+                col++;
             }
-            fb_fill_rect(x + col * scale, y + (int)row * scale,
-                         scale, scale, color);
+            fb_fill_rect(x + start * scale, y + (int)row * scale,
+                         (col - start) * scale, scale,
+                         on ? fg : bg);
         }
     }
 }
@@ -267,11 +375,17 @@ void fb_splash(const struct boot_info *bi)
     fb_text("Thunder", 68, 180, 3, 0x4FC3F7, bg);
     fb_text("higher-half kernel running", 68, 236, 2, 0xB0BEC5, bg);
 
-    fb_text("Zenku 0.0.1 - Thunder", 68, 290, 1, 0x90A4AE, bg);
+    fb_text(OS_VERSION_STRING, 68, 290, 1, 0x90A4AE, bg);
 
     for (unsigned i = 0; i < ARRAY_SIZE(bars); i++) {
         fb_fill_rect(68 + (int)i * 48, 330, 40, 40, bars[i]);
     }
 
     fb_text("serial: COM1 115200 8N1", 68, 400, 1, 0x78909C, bg);
+    fb_text("starting desktop...", 68, 424, 1, 0x90A4AE, bg);
+
+    /* Progress bar: a visible hand-off point between firmware and desktop. */
+    fb_fill_rect(68, 452, width - 136, 6, 0x1E2A44);
+    fb_fill_rect(68, 452, (width - 136) * 3 / 4, 6, 0x2A6FDB);
+    fb_fill_rect(68, 452, (width - 136) / 4, 6, 0x4FC3F7);
 }

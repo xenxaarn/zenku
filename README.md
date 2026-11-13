@@ -32,6 +32,10 @@ repository. The result boots from a single `build/os.iso` image.
   a 64-bit stage3 loader that mounts ext2 and loads the kernel.
 - **Higher-half kernel** — linked at `0xFFFFFFFF80000000`, 4-level paging,
   4 GiB direct map, 16 MiB kernel heap, and a bitmap physical frame allocator.
+- **Graphical desktop** — a framebuffer terminal window with ANSI color, a
+  draggable title bar, corner resize, close/reopen, taskbar, cursor sprite,
+  and a top bar showing uptime, RTC wall clock, task count, and memory use.
+  A dirty-rect compositor targets 60 frames per second.
 - **Fault-safe core** — GDT/TSS with double-fault IST, 256-entry IDT,
   readable panic dumps, boot-time PMM/VMM/heap self-tests, and user page
   faults that terminate only the offending process.
@@ -63,7 +67,8 @@ BIOS / SeaBIOS
                   ├─ memory: PMM, VMM, heap
                   ├─ storage: ext2, VFS, devfs, pipes
                   ├─ execution: ELF loader, syscalls, user copies
-                  └─ processes: scheduler, COW fork, exec, wait
+                  ├─ processes: scheduler, COW fork, exec, wait
+                  └─ desktop: framebuffer, terminal, RTC, compositor
 ```
 
 | Region | Virtual address | Purpose |
@@ -154,12 +159,17 @@ The root filesystem is intentionally read-only. Output redirection works for
 writable devices such as `/dev/null`, while writes to ext2 are rejected with
 `EROFS`.
 
+The desktop is mouse-driven. Drag the title bar to move the window, drag the
+bottom-right grip to resize (the scrollback reflows), click the red button to
+close, and use the taskbar `console` button to reopen it. The top bar shows
+live uptime, CMOS clock, task count, and memory use.
+
 ## Repository layout
 
 ```
 boot/       stage1, stage2, and stage3 boot chain
 kernel/     higher-half kernel: arch, memory, filesystem, scheduler, syscalls
-drivers/    PIC, PIT, PS/2, mouse, and serial drivers
+drivers/    PIC, PIT, PS/2, mouse, serial, and RTC drivers
 fs/         shared ext2 implementation used by stage3 and the kernel
 libc/       freestanding C library, ABI header, and standard headers
 user/       crt0, init, shell, and coreutils

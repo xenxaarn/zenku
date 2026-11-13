@@ -900,6 +900,18 @@ int process_getppid(void)
     return g_current ? g_current->ppid : 0;
 }
 
+int process_count(void)
+{
+    int count = 0;
+
+    for (int i = 0; i < PROCESS_MAX; i++) {
+        if (g_procs[i].state != PROC_FREE) {
+            count++;
+        }
+    }
+    return count;
+}
+
 void process_print(void)
 {
     static const char *const names[] = {
