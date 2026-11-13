@@ -1,70 +1,44 @@
 # Zenku
 
-**A 64-bit Unix-like operating system, bootloader, and userland built from
-scratch in C and x86_64 assembly.**
+**A 64-bit Unix-like operating system built from scratch in C and x86_64
+assembly.**
 
-Zenku boots on BIOS and UEFI PCs, runs a higher-half kernel with 4-level
-paging, and provides a small Unix environment with an ext2 root filesystem,
-processes, pipes, an interactive shell, and core utilities. The kernel
-codename is **Thunder**.
+Zenku boots on BIOS and UEFI systems from a single ISO, runs a higher-half
+kernel with 4-level paging, and provides a small Unix environment: a read-only
+ext2 root filesystem, processes, pipes, an interactive shell, core utilities,
+and a graphical desktop. The kernel is codenamed **Thunder**.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Architecture](https://img.shields.io/badge/arch-x86__64-lightgrey.svg)](#)
-[![Firmware](https://img.shields.io/badge/firmware-BIOS%20%7C%20UEFI-blue.svg)](#)
-[![Status](https://img.shields.io/badge/status-active%20development-orange.svg)](#)
+![Architecture](https://img.shields.io/badge/arch-x86__64-lightgrey.svg)
+![Firmware](https://img.shields.io/badge/firmware-BIOS%20%7C%20UEFI-blue.svg)
+![Release](https://img.shields.io/badge/release-v0.1.0-informational.svg)
 
 ![Zenku running fetch, the shell, a pipeline, and ps](docs/screenshots/hero.png)
 
 ## Overview
 
-Zenku is a compact operating system written for learning and experimentation,
-with production-style engineering discipline: every boot stage validates its
-inputs, kernel memory is isolated, user pointers are checked at the syscall
-boundary, and every subsystem is exercised by automated QEMU tests.
+Zenku is a compact operating system for learning and experimentation, built
+with production-style discipline: every boot stage validates its inputs,
+kernel memory is isolated, user pointers are checked at the syscall boundary,
+and the core subsystems are covered by automated tests.
 
 There is no GRUB, Limine, Multiboot, or borrowed kernel. The boot chain,
-kernel, VFS, scheduler, shell, and core utilities are all part of this
-repository. The result boots from a single `build/os.iso` image on either
-BIOS or UEFI firmware.
+kernel, VFS, scheduler, shell, and core utilities all live in this repository.
+The result boots from one `build/os.iso` image on either firmware path.
 
-## Features
+## Highlights
 
-- **Custom BIOS boot chain** — El Torito stage1, E820/VBE/ISO9660 stage2, and
-  a 64-bit stage3 loader that mounts ext2 and loads the kernel.
-- **Native UEFI boot path** — a freestanding `BOOTX64.EFI` built with
-  `clang`/`lld-link`, using GOP, the firmware memory map, and
-  `SimpleFileSystem` to load the same ext2 root filesystem and kernel. Both
-  firmware paths share the `boot_info` ABI and dual El Torito entries in one
-  ISO.
-- **Higher-half kernel** — linked at `0xFFFFFFFF80000000`, 4-level paging,
-  4 GiB direct map, 16 MiB kernel heap, and a bitmap physical frame allocator.
-- **Graphical desktop** — a framebuffer terminal window with ANSI color, a
-  draggable title bar, corner resize, close/reopen, taskbar, cursor sprite,
-  and a top bar showing uptime, RTC wall clock, task count, and memory use.
-  A dirty-rect compositor targets 60 frames per second.
-- **Fault-safe core** — GDT/TSS with double-fault IST, 256-entry IDT,
-  readable panic dumps, boot-time PMM/VMM/heap self-tests, and user page
-  faults that terminate only the offending process.
-- **Kernel hardening** — NX, SMEP, and SMAP enabled when the CPU reports
-  them, W^X user mappings, validated user copies with `stac`/`clac`, heap
-  redzones with poisoning and integrity checks, and a `SYSCALL`/`SYSRET`
-  fast path with a per-CPU GS block (`int 0x80` remains available).
-- **Filesystem and devices** — read-only ext2, a POSIX-style VFS, devfs under
-  `/dev`, and 4 KiB pipes with `EAGAIN`, `EPIPE`, and EOF semantics.
-- **Processes** — per-process page tables and 16 KiB kernel stacks, copy-on-write
-  `fork`, `execve`, blocking `wait4`, `brk`, anonymous `mmap`/`munmap`, guarded
-  stack growth, and 100 Hz round-robin preemption.
-- **Userland** — a freestanding C library, shared `crt0`, `/init`, `/bin/sh`
-  with multi-stage pipelines and `<`/`>` redirection, plus `ls`, `cat`, `wc`,
-  `head`, `pwd`, `ps`, `sleep`, `kill`, `clear`, `uname`, `echo`, and
-  `poweroff`.
-- **Firmware and power** — ACPI RSDP/FADT discovery on both boot paths, with
-  `poweroff` entering ACPI S5 and falling back to the FADT reset register,
-  the 8042, or the PCI reset control register.
-- **Automated verification** — serial/PS2/QEMU integration tests for the boot
-  chain, memory, filesystem, syscalls, scheduler, shell, fault paths, and a
-  real OVMF boot through the UEFI loader, plus native host unit tests for the
-  shared string and ext2 code.
+| Area | What is implemented |
+|---|---|
+| **Boot** | Custom El Torito BIOS chain (stage1/2/3) and a native `BOOTX64.EFI`, sharing the `boot_info` ABI and one dual-entry ISO. |
+| **Kernel** | Higher-half x86_64 at `0xFFFFFFFF80000000`, 4-level paging, 4 GiB direct map, bitmap frame allocator, 16 MiB heap. |
+| **Hardening** | CPUID-gated NX, SMEP, and SMAP; W^X user mappings; validated usercopy with `stac`/`clac`; heap redzones; `SYSCALL`/`SYSRET` fast path with `int 0x80` retained. |
+| **Processes** | Per-process address spaces, COW `fork`, `execve`, blocking `wait4`, `brk`, `mmap`/`munmap`, guarded stacks, 100 Hz round-robin. |
+| **Storage** | Read-only ext2, POSIX-style VFS, devfs under `/dev`, 4 KiB pipes with `EAGAIN`, `EPIPE`, and EOF. |
+| **Userland** | Freestanding libc, shared `crt0`, `/init`, `/bin/sh` with pipelines and redirection, plus coreutils including `poweroff`. |
+| **Desktop** | Framebuffer terminal with ANSI color, draggable and resizable window, taskbar, RTC top bar, and a 60 Hz dirty-rect compositor. |
+| **Firmware** | ACPI RSDP/FADT discovery on both paths; S5 poweroff with FADT, 8042, and PCI reset fallbacks. |
+| **Verification** | Native string/ext2 tests plus BIOS, UEFI, fault, input, serial, filesystem, syscall, process, and shell QEMU suites. |
 
 ## Screenshots
 
@@ -139,37 +113,37 @@ over COM1.
 ### Tests
 
 ```sh
-make test         # headless boot and serial assertions
-make test-faults  # inject #DE/#UD/#GP/#PF and verify panic handling
-make test-input   # PS/2 keyboard and mouse path
-make test-serial  # COM1 receive over IRQ4
-make test-fs      # ext2, VFS, and devfs
-make test-user    # ring-3 entry, syscalls, brk/mmap, and user copies
-make test-proc    # fork, exec, wait, pipes, preemption, COW stress
-make test-sh      # shell builtins, coreutils, and pipelines
-make test-uefi    # OVMF boots BOOTX64.EFI into the same kernel and userland
-make test-host    # native string/mem and ext2 unit tests (no QEMU)
-make check        # fast C/assembly/shell/Python syntax checks
-make check-link   # syntax checks plus stage3 and kernel link checks
-make layout       # validate the boot image layout
-make doctor       # report toolchain and dependency status
+make test       # headless BIOS boot and serial assertions
+make test-uefi  # headless UEFI boot under OVMF
+make test-host  # native string/mem and ext2 tests (no QEMU)
+make check      # syntax checks; make check-link adds link checks
 ```
 
-The release matrix combines the fast static checks, native unit tests, and
-the QEMU boot suite:
+<details>
+<summary>Full test matrix</summary>
 
-| Layer | Commands |
+| Target | Coverage |
 |---|---|
-| Static | `make check`, `make check-link`, `make layout` |
-| Host | `make test-host` |
-| BIOS | `make test`, `make test-faults`, `make test-input`, `make test-serial`, `make test-fs`, `make test-user`, `make test-proc`, `make test-sh` |
-| UEFI | `make test-uefi` |
+| `make test` | Boot chain, kernel self-tests, and serial assertions |
+| `make test-faults` | `#DE`, `#UD`, `#GP`, and `#PF` panic handling |
+| `make test-input` | PS/2 keyboard and mouse path |
+| `make test-serial` | COM1 receive over IRQ4 |
+| `make test-fs` | ext2, VFS, and devfs |
+| `make test-user` | Ring-3 entry, syscalls, `brk`/`mmap`, usercopy, and W^X |
+| `make test-proc` | `fork`, `exec`, `wait`, pipes, preemption, and COW stress |
+| `make test-sh` | Shell builtins, coreutils, and pipelines |
+| `make test-uefi` | OVMF boots `BOOTX64.EFI` into the same kernel and userland |
+| `make test-host` | 208 native checks over string/mem and ext2 |
+| `make check` | C, assembly, shell, and Python syntax checks |
+| `make check-link` | Syntax checks plus stage3 and kernel link checks |
+| `make layout` | Boot image layout and linker-symbol validation |
+
+</details>
 
 `make test-host` builds the shared `lib/string.c` and `fs/ext2.c` sources for
-the host with `-fno-builtin`, generates ext2 fixture images with 1/2/4 KiB
-blocks, and checks deep paths, large directories, single/double/triple
-indirect blocks, and corrupt-directory rejection. It needs no QEMU or root
-privileges.
+the host with `-fno-builtin`, generates 1/2/4 KiB ext2 fixture images, and
+checks deep paths, large directories, indirect blocks, and corrupt-directory
+rejection. It needs no QEMU or root privileges.
 
 ## Using Zenku
 
@@ -211,16 +185,18 @@ live uptime, CMOS clock, task count, and memory use.
 ## Repository layout
 
 ```
-boot/       stage1, stage2, stage3, and the UEFI loader
-kernel/     higher-half kernel: arch, memory, filesystem, scheduler, syscalls
-drivers/    PIC, PIT, PS/2, mouse, serial, RTC, and ACPI
-fs/         shared ext2 implementation used by every boot path and the kernel
-libc/       freestanding C library, ABI header, and standard headers
-user/       crt0, init, shell, and coreutils
-docs/       plan, boot protocol, and screenshots
-linker/     kernel, stage3, and user linker scripts
-scripts/    build, image, rootfs, and test tooling
-tests/      host and QEMU integration test sources
+boot/        BIOS stages and the UEFI application
+kernel/      higher-half kernel: arch, memory, exec, filesystem, scheduler, syscalls
+drivers/     PIC, PIT, PS/2, mouse, serial, RTC, and ACPI
+fs/          shared ext2 reader used by every boot path and the kernel
+lib/         freestanding string and kernel I/O helpers
+libc/        userland C library and syscall ABI
+user/        crt0, init, shell, and coreutils
+include/     kernel and boot ABI headers
+linker/      kernel, stage3, and user linker scripts
+scripts/     build, image, rootfs, QEMU, and test tooling
+tests/       host unit tests
+docs/        plan, boot protocol, and screenshots
 third_party/ vendored licenses and provenance notes
 ```
 
